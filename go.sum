@@ -1,0 +1,16 @@
+github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 h1:El6M4kTTCOh6aBiKaUGG7oYTSPP8MxqL4YI3kZKwcP4=
+github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510/go.mod h1:pupxD2MaaD3pAXIBCelhxNneeOaAeabZDe5s4K6zSpQ=
+github.com/soypat/cyw43439 v0.0.0-20260112220010-064a839f63bb h1:qF3a7qm4uKwRcxPWexEIw7lpQaeTcPkTUY8sd+lcZqM=
+github.com/soypat/cyw43439 v0.0.0-20260112220010-064a839f63bb/go.mod h1:oXpTlhrJ/HxN5Ipu5Z57eLI8jadcrUf1eS00PezD9hQ=
+github.com/soypat/lneto v0.0.0-20260112140510-1a427323f2ca h1:CFfW5Bf1WKSs/kgl7V+nS4rQTIAhlEWrcUvpb0SPCog=
+github.com/soypat/lneto v0.0.0-20260112140510-1a427323f2ca/go.mod h1:g/8Lk+hIsMZydyWDJjK2YfsCuG6jA5mWCO6U+4S7w1U=
+github.com/soypat/natiu-mqtt v0.6.0 h1:ddrem9iAqFYtQOx2C7AhCizhPXXmGZs1T5fkvLroPO4=
+github.com/soypat/natiu-mqtt v0.6.0/go.mod h1:xEta+cwop9izVCW7xOx2W+ct9PRMqr0gNVkvBPnQTc4=
+github.com/soypat/seqs v0.0.0-20250124201400-0d65bc7c1710 h1:Y9fBuiR/urFY/m76+SAZTxk2xAOS2n85f+H1CugajeA=
+github.com/soypat/seqs v0.0.0-20250124201400-0d65bc7c1710/go.mod h1:oCVCNGCHMKoBj97Zp9znLbQ1nHxpkmOY9X+UAGzOxc8=
+github.com/tinygo-org/pio v0.2.0 h1:vo3xa6xDZ2rVtxrks/KcTZHF3qq4lyWOntvEvl2pOhU=
+github.com/tinygo-org/pio v0.2.0/go.mod h1:LU7Dw00NJ+N86QkeTGjMLNkYcEYMor6wTDpTCu0EaH8=
+golang.org/x/exp v0.0.0-20241204233417-43b7b7cde48d h1:0olWaB5pg3+oychR51GUVCEsGkeCU/2JxjBgIo4f3M0=
+golang.org/x/exp v0.0.0-20241204233417-43b7b7cde48d/go.mod h1:qj5a5QZpwLU2NLQudwIN5koi3beDhSAlJwa67PuM98c=
+tinygo.org/x/drivers v0.34.0 h1:lw8ePJeUSn9oICKBvQXHC9TIE+J00OfXfkGTrpXM9Iw=
+tinygo.org/x/drivers v0.34.0/go.mod h1:ZdErNrApSABdVXjA1RejD67R8SNRI6RKVfYgQDZtKtk=
