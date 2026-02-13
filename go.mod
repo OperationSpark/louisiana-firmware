@@ -3,8 +3,8 @@ module github.com/operationspark/aethernet-firmware
 go 1.25.6
 
 require (
-	github.com/soypat/cyw43439 v0.0.0-20260112220010-064a839f63bb
-	github.com/soypat/lneto v0.0.0-20260112140510-1a427323f2ca
+	github.com/soypat/cyw43439 v0.0.0-20260213213032-b1046b1c6b0b
+	github.com/soypat/lneto v0.0.0-20260205211827-199d978c9958
 	github.com/soypat/natiu-mqtt v0.6.0
 	tinygo.org/x/drivers v0.34.0
 )

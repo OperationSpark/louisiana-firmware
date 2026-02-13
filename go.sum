@@ -1,9 +1,9 @@
 github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 h1:El6M4kTTCOh6aBiKaUGG7oYTSPP8MxqL4YI3kZKwcP4=
 github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510/go.mod h1:pupxD2MaaD3pAXIBCelhxNneeOaAeabZDe5s4K6zSpQ=
-github.com/soypat/cyw43439 v0.0.0-20260112220010-064a839f63bb h1:qF3a7qm4uKwRcxPWexEIw7lpQaeTcPkTUY8sd+lcZqM=
-github.com/soypat/cyw43439 v0.0.0-20260112220010-064a839f63bb/go.mod h1:oXpTlhrJ/HxN5Ipu5Z57eLI8jadcrUf1eS00PezD9hQ=
-github.com/soypat/lneto v0.0.0-20260112140510-1a427323f2ca h1:CFfW5Bf1WKSs/kgl7V+nS4rQTIAhlEWrcUvpb0SPCog=
-github.com/soypat/lneto v0.0.0-20260112140510-1a427323f2ca/go.mod h1:g/8Lk+hIsMZydyWDJjK2YfsCuG6jA5mWCO6U+4S7w1U=
+github.com/soypat/cyw43439 v0.0.0-20260213213032-b1046b1c6b0b h1:Ul18rBeCvpVI0f7OdfVJPvY37jQIgwfZ5wyQUNAmZ/A=
+github.com/soypat/cyw43439 v0.0.0-20260213213032-b1046b1c6b0b/go.mod h1:VgyKV+6ETkyrbPy4dIu4PFp7J51doOy9Vjh6qza867k=
+github.com/soypat/lneto v0.0.0-20260205211827-199d978c9958 h1:9zApz3nmvEf0PYNkvvh8b78nWJQeZJeKkheEsfN+QhQ=
+github.com/soypat/lneto v0.0.0-20260205211827-199d978c9958/go.mod h1:g/8Lk+hIsMZydyWDJjK2YfsCuG6jA5mWCO6U+4S7w1U=
 github.com/soypat/natiu-mqtt v0.6.0 h1:ddrem9iAqFYtQOx2C7AhCizhPXXmGZs1T5fkvLroPO4=
 github.com/soypat/natiu-mqtt v0.6.0/go.mod h1:xEta+cwop9izVCW7xOx2W+ct9PRMqr0gNVkvBPnQTc4=
 github.com/soypat/seqs v0.0.0-20250124201400-0d65bc7c1710 h1:Y9fBuiR/urFY/m76+SAZTxk2xAOS2n85f+H1CugajeA=
