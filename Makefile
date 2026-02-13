@@ -13,7 +13,7 @@ flash/mqttsensor:
 		-X 'main.mqttServerAddr=${MQTT_ADDR}' \
 		-X 'main.mqttUsername=${MQTT_USER}' \
 		-X 'main.mqttPassword=${MQTT_PASS}'"; \
-	tinygo flash -target=$(TARGET) -stack-size=16kb -monitor -ldflags="$$LDFLAGS" ./mqttsensor/...
+	GOTOOLCHAIN=go1.25.7 tinygo flash -target=$(TARGET) -stack-size=16kb -monitor -tags=debugheaplog -ldflags="$$LDFLAGS" ./mqttsensor/...
 
 ## flash/mqttsensor/picow: flash the MQTT client app to the Pico W
 ## flash/mqttsensor/pico2w: flash the MQTT client app to the Pico2 W
