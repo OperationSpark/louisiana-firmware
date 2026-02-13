@@ -22,7 +22,7 @@ type Sensor struct {
 }
 
 func New(pin machine.Pin, scale dht.TemperatureScale) *Sensor {
-	dev := dht.New(pin, dht.DHT11)
+	dev := dht.New(pin, dht.DHT22)
 	return &Sensor{
 		dev:           dev,
 		hasValidCache: false,
