@@ -15,14 +15,17 @@
 package cyw43439
 
 import (
+	"context"
 	"errors"
 	"io"
 	"log/slog"
+	"machine"
 	"net"
 	"net/netip"
 	"time"
 
 	"github.com/soypat/cyw43439"
+	"github.com/soypat/lneto/internet/pcap"
 	"github.com/soypat/lneto/x/xnet"
 )
 
@@ -54,6 +57,12 @@ type StackConfig struct {
 	Logger *slog.Logger
 	// RandSeed is an optional random seed for the stack's PRNG.
 	RandSeed int64
+	// WifiJoinOptions are used to join the wifi. Passphrase field is override by password argument to [NewConfiguredPicoWithStack].
+	WifiJoinOptions cyw43439.JoinOptions
+	// Enables printing of received packets. Useful for debugging.
+	EnableRxPacketCapture bool
+	// Enable printing of transmitted packets
+	EnableTxPacketCapture bool
 }
 
 // DHCPConfig configures the DHCP request.
@@ -67,10 +76,18 @@ type DHCPConfig struct {
 
 // Stack wraps the lneto StackAsync and CYW43439 device for network operations.
 type Stack struct {
-	s       xnet.StackAsync
-	dev     *cyw43439.Device
-	log     *slog.Logger
-	sendbuf []byte
+	s        xnet.StackAsync
+	dev      *cyw43439.Device
+	log      *slog.Logger
+	sendbuf  []byte
+	lastrecv uint16
+	// Packet capture utilities.
+	enableRxPcap bool
+	enableTxPcap bool
+	fmtPcapBuf   []byte
+	frms         []pcap.Frame
+	cap          pcap.PacketBreakdown
+	pfmt         pcap.Formatter
 }
 
 // NewConfiguredPicoWithStack creates a new WiFi stack with the given configuration.
@@ -79,6 +96,7 @@ func NewConfiguredPicoWithStack(ssid, pass string, wificfg cyw43439.Config, cfg 
 	if cfg.Hostname == "" {
 		return nil, errors.New("empty hostname")
 	}
+	cfg.WifiJoinOptions.Passphrase = pass
 
 	logger := cfg.Logger
 	if logger == nil {
@@ -105,7 +123,7 @@ func NewConfiguredPicoWithStack(ssid, pass string, wificfg cyw43439.Config, cfg 
 	}
 
 	for {
-		err = dev.JoinWPA2(ssid, pass)
+		err = dev.Join(ssid, cfg.WifiJoinOptions)
 		if err == nil {
 			break
 		}
@@ -123,7 +141,7 @@ func NewConfiguredPicoWithStack(ssid, pass string, wificfg cyw43439.Config, cfg 
 	stack := &Stack{
 		dev:     dev,
 		log:     logger,
-		sendbuf: make([]byte, mtu),
+		sendbuf: make([]byte, cyw43439.MaxFrameSize),
 	}
 
 	maxTCP := cfg.MaxTCPPorts
@@ -151,55 +169,69 @@ func NewConfiguredPicoWithStack(ssid, pass string, wificfg cyw43439.Config, cfg 
 }
 
 // SetupWithDHCP performs DHCP configuration and returns the results.
-func (s *Stack) SetupWithDHCP(cfg DHCPConfig) (*xnet.DHCPResults, error) {
-	if !cfg.RequestedAddr.Is4() {
-		// If no address provided, use a zero address
-		if !cfg.RequestedAddr.IsValid() {
-			cfg.RequestedAddr = netip.AddrFrom4([4]byte{0, 0, 0, 0})
-		} else {
-			return nil, errors.New("only dhcpv4 supported")
+func (stack *Stack) SetupWithDHCP(cfg DHCPConfig) (dhcpResults *xnet.DHCPResults, err error) {
+	var reqaddr [4]byte
+	if cfg.RequestedAddr.IsValid() {
+		if !cfg.RequestedAddr.Is4() {
+			return dhcpResults, errors.New("IPV6 DHCP unsupported")
 		}
+		reqaddr = cfg.RequestedAddr.As4()
 	}
 
+	lstack := stack.LnetoStack()
 	const pollTime = 50 * time.Millisecond
-	rstack := s.s.StackRetrying(pollTime)
-
-	s.log.Info("DHCP:starting")
-
-	dhcpResults, err := rstack.DoDHCPv4(cfg.RequestedAddr.As4(), 3*time.Second, 3)
+	rstack := lstack.StackRetrying(pollTime)
+	dhcpResults, err = rstack.DoDHCPv4(reqaddr, 3*time.Second, 3)
 	if err != nil {
-		// If DHCP fails but we have a requested address, use it as static IP
-		if cfg.RequestedAddr.IsValid() && !cfg.RequestedAddr.IsUnspecified() {
-			s.log.Info("DHCP did not complete, assigning static IP", slog.String("ip", cfg.RequestedAddr.String()))
-			s.s.SetIPAddr(cfg.RequestedAddr)
-			return &xnet.DHCPResults{
-				AssignedAddr: cfg.RequestedAddr,
-			}, nil
-		}
-		return nil, errors.New("dhcp failed:" + err.Error())
+		return dhcpResults, err
 	}
-
-	// Apply DHCP results to the stack
-	err = s.s.AssimilateDHCPResults(dhcpResults)
+	err = lstack.AssimilateDHCPResults(dhcpResults)
 	if err != nil {
-		return nil, errors.New("assimilate dhcp:" + err.Error())
+		panic(err)
 	}
-
-	// Resolve and set the router hardware address as the gateway
+	// Set the router hardware address as the gateway. Defaults to this address.
 	gatewayHW, err := rstack.DoResolveHardwareAddress6(dhcpResults.Router, 500*time.Millisecond, 4)
 	if err != nil {
-		return nil, errors.New("resolve gateway:" + err.Error())
+		panic(err)
 	}
-	s.s.SetGateway6(gatewayHW)
-
-	s.log.Info("DHCP complete",
-		slog.String("ourIP", dhcpResults.AssignedAddr.String()),
-		slog.String("gateway", dhcpResults.Gateway.String()),
-		slog.String("router", dhcpResults.Router.String()),
-		slog.Uint64("lease_sec", uint64(dhcpResults.TLease)),
-	)
-
+	lstack.SetGateway6(gatewayHW)
 	return dhcpResults, nil
+}
+
+func (stack *Stack) logerr(msg string, attrs ...slog.Attr) {
+	if stack.log != nil {
+		stack.log.LogAttrs(context.Background(), slog.LevelError, msg, attrs...)
+	}
+}
+
+func (stack *Stack) printPacket(prefix string, pkt []byte) {
+	var err error
+	stack.frms, err = stack.cap.CaptureEthernet(stack.frms[:0], pkt, 0)
+	if err == nil {
+		stack.fmtPcapBuf = append(stack.fmtPcapBuf[:0], prefix...)
+		stack.fmtPcapBuf, err = stack.pfmt.FormatFrames(stack.fmtPcapBuf, stack.frms, pkt)
+		stack.fmtPcapBuf = append(stack.fmtPcapBuf, '\n')
+		if err != nil {
+			println("formatting frame:", err.Error())
+		}
+		serialWrite(stack.fmtPcapBuf)
+	} else {
+		println("processing", prefix, "packet:", err.Error())
+	}
+}
+
+// circumvents pico issue on tinygo https://github.com/tinygo-org/tinygo/issues/5188
+func serialWrite(b []byte) {
+	const chunkSize = 256
+	const sleep = 30 * time.Millisecond
+	for len(b) > 0 {
+		n := min(len(b), chunkSize)
+		machine.Serial.Write(b[:n])
+		b = b[n:]
+		if len(b) > 0 {
+			time.Sleep(sleep)
+		}
+	}
 }
 
 // RecvAndSend processes incoming and outgoing packets.
