@@ -13,3 +13,8 @@ flash/mqttsensor:
 		-X 'main.mqttUsername=${MQTT_USER}' \
 		-X 'main.mqttPassword=${MQTT_PASS}'"; \
 	tinygo flash -target=pico-w -stack-size=16kb -monitor -ldflags="$$LDFLAGS" ./mqttsensor/...
+
+## flash/pinprobe: scan GP0..GP28 and report what's tied HIGH/LOW/floating.
+.PHONY: flash/pinprobe
+flash/pinprobe:
+	tinygo flash -target=pico-w -monitor ./pinprobe/...
