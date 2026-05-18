@@ -17,23 +17,24 @@ import (
 
 var (
 	pubFlags, _ = mqtt.NewPublishFlags(mqtt.QoS0, false, false)
-	pubVar      = mqtt.VariablesPublish{
-		TopicName:        []byte("tests/43"),
-		PacketIdentifier: 0xc0fe,
-	}
 )
+
+const defaultTopic = "tests/43"
 
 type SensorReading struct {
 	Voltage     float32
 	RawUInt16   uint16        // Raw ADC value
 	Temperature float32       // Temperature from DHT11
 	Humidity    float32       // Relative humidity percentage from DHT11
+	ECO2        uint32        // CO2 equivalent (ppm) from SGP30. Zero if sensor not present.
+	TVOC        uint32        // Total VOC (ppb) from SGP30. Zero if sensor not present.
 	SinceBootNS time.Duration // Nanoseconds since boot.
 	Timestamp   time.Time     // Wall-clock time. Zero if NTP sync failed.
 }
 
 type Client struct {
 	ID                string
+	Topic             string // MQTT publish topic. Defaults to "tests/43" if empty.
 	Timeout           time.Duration
 	TCPBufSize        int
 	Logger            *slog.Logger
@@ -52,6 +53,15 @@ func (c *Client) ConnectAndPublish(
 	lcdMessages chan<- lcd.Message,
 ) error {
 	const pollTime = 5 * time.Millisecond
+
+	topic := c.Topic
+	if topic == "" {
+		topic = defaultTopic
+	}
+	pubVar := mqtt.VariablesPublish{
+		TopicName:        []byte(topic),
+		PacketIdentifier: 0xc0fe,
+	}
 
 	c.Logger.Info("MQTT address: " + addr)
 
