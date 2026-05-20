@@ -63,7 +63,7 @@ func main() {
 
 	// DHT11 on GPIO0 (matches mqttsensor wiring).
 	weatherSensor := weather.New(machine.GPIO0, dht.F)
-	weatherSensor.TempOffset = -11.0
+	//weatherSensor.TempOffset = -11.0
 
 	// I2C0 on GP4 (SDA) / GP5 (SCL) at 100 kHz — match the freq used by i2cscan.
 	err := machine.I2C0.Configure(machine.I2CConfig{
