@@ -95,11 +95,34 @@ mosquitto -c /tmp/louisianAir-mosquitto.conf -v
 > If macOS prompts for firewall permission, allow incoming connections.
 > `allow_anonymous true` is fine for local lab use — don't use it on public networks.
 
-Then get your Mac's WiFi IP to use as `MQTT_ADDR`:
+Then find your computer's LAN IP and save it as `MAC_IP` (used in step 4 and in MQTTX). Use the broker machine's IP — the one the Pico W will reach over WiFi.
 
-```bash
-ipconfig getifaddr en0   # try en1 if this prints nothing
+**macOS** (run in the same terminal you'll use for the rest of the steps):
+
+```bash copy
+export MAC_IP=$(ipconfig getifaddr en0 || ipconfig getifaddr en1)
+echo "$MAC_IP"
 ```
+
+**Linux:**
+
+```bash copy
+export MAC_IP=$(hostname -I | awk '{print $1}')
+echo "$MAC_IP"
+```
+
+**Windows (PowerShell):**
+
+```powershell
+$env:MAC_IP = (Get-NetIPAddress -AddressFamily IPv4 |
+  Where-Object { $_.InterfaceAlias -match 'Wi-Fi|Ethernet' -and $_.IPAddress -notlike '169.*' } |
+  Select-Object -First 1 -ExpandProperty IPAddress)
+echo $env:MAC_IP
+```
+
+Then set `MQTT_ADDR=$MAC_IP:1883` in your `.env` (for example `MQTT_ADDR=192.168.1.42:1883`).
+
+> `export`/`$env:` only lasts for the current terminal session. If you open a new terminal, re-run the command above before step 4.
 
 ### 3. Flash the Pico W
 
