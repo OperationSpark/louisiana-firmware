@@ -12,6 +12,59 @@ TinyGo firmware for the Raspberry Pi Pico W. Reads temperature, humidity, and an
 | LCD SCL | `GP5` |
 | Debug LED | `GP21` |
 
+## Prerequisites
+
+You'll need four tools installed: **Go**, **TinyGo** (compiles Go for microcontrollers), **Mosquitto** (the MQTT broker + CLI clients), and optionally **MQTTX** (a GUI MQTT client).
+
+### Go
+
+Download page: <https://go.dev/dl/> · Install docs: <https://go.dev/doc/install>
+
+| OS | Command |
+|----|---------|
+| macOS | `brew install go` |
+| Linux | `sudo rm -rf /usr/local/go && wget -qO- https://go.dev/dl/go1.22.0.linux-amd64.tar.gz \| sudo tar -C /usr/local -xz` then add `/usr/local/go/bin` to your `PATH` |
+| Windows | Download and run the `.msi` from <https://go.dev/dl/> |
+
+Verify: `go version`
+
+### TinyGo
+
+Install docs: <https://tinygo.org/getting-started/install/>
+
+| OS | Command |
+|----|---------|
+| macOS | `brew tap tinygo-org/tools && brew install tinygo` |
+| Linux (Debian/Ubuntu) | `wget https://github.com/tinygo-org/tinygo/releases/latest/download/tinygo_amd64.deb && sudo dpkg -i tinygo_amd64.deb` |
+| Linux (other) | Download a release tarball from <https://github.com/tinygo-org/tinygo/releases> and add its `bin` to your `PATH` |
+| Windows | `scoop install tinygo` (needs [Scoop](https://scoop.sh/)) — see <https://tinygo.org/getting-started/install/windows/> |
+
+Verify: `tinygo version`
+
+> TinyGo needs Go installed first.
+
+### Mosquitto (broker + `mosquitto_sub`/`mosquitto_pub`)
+
+Download page: <https://mosquitto.org/download/>
+
+| OS | Command |
+|----|---------|
+| macOS | `brew install mosquitto` |
+| Linux (Debian/Ubuntu) | `sudo apt update && sudo apt install -y mosquitto mosquitto-clients` |
+| Windows | `choco install mosquitto` (needs [Chocolatey](https://chocolatey.org/)) or run the installer from <https://mosquitto.org/download/> |
+
+Verify: `mosquitto --help`
+
+### MQTTX (optional GUI client)
+
+Download page: <https://mqttx.app/>
+
+| OS | Command |
+|----|---------|
+| macOS | `brew install --cask mqttx` |
+| Linux | Download the `.AppImage`/`.deb`/`.rpm` from <https://mqttx.app/downloads> |
+| Windows | `choco install mqttx` or download the installer from <https://mqttx.app/downloads> |
+
 ## Setup
 
 ### 1. Copy and fill in your environment
