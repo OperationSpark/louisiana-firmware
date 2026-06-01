@@ -111,7 +111,7 @@ func main() {
 		}
 	}
 
-	lcdDev.BacklightOn(false)
+	lcdDev.BacklightOn(true)
 	lcdDev.ClearDisplay()
 
 	// Create channel and start LCD handler goroutine
