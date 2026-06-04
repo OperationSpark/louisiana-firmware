@@ -147,6 +147,10 @@ func main() {
 			Hostname:    mqttC.ID,
 			MaxTCPPorts: 1,
 			Logger:      logger,
+			// Fallback DNS server (Google Public DNS) for networks whose
+			// DHCP server does not advertise one. DHCP-provided DNS, if any,
+			// takes precedence.
+			DNSServer: netip.AddrFrom4([4]byte{8, 8, 8, 8}),
 		},
 	)
 	if err != nil {
@@ -158,8 +162,11 @@ func main() {
 
 	// 3. DHCP
 	lcd.Send(lcdMessages, "Getting IP", "via DHCP...")
+	// Request 0.0.0.0 so the stack performs a real DHCP lease on whatever
+	// subnet it joins (correct gateway + DNS). A hardcoded address here forces
+	// a static-IP fallback that breaks on any network with a different subnet.
 	dhcpResults, err := cystack.SetupWithDHCP(cyw43439.DHCPConfig{
-		RequestedAddr: netip.AddrFrom4([4]byte{192, 168, 1, 99}),
+		RequestedAddr: netip.AddrFrom4([4]byte{0, 0, 0, 0}),
 		Hostname:      mqttC.ID,
 	})
 	if err != nil {

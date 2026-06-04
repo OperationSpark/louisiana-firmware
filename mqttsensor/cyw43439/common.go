@@ -54,6 +54,10 @@ type StackConfig struct {
 	Logger *slog.Logger
 	// RandSeed is an optional random seed for the stack's PRNG.
 	RandSeed int64
+	// DNSServer is an optional predetermined DNS server. Used as a fallback
+	// when the network's DHCP server does not advertise a DNS server.
+	// If unset, DNS is taken from DHCP results (if any).
+	DNSServer netip.Addr
 }
 
 // DHCPConfig configures the DHCP request.
@@ -138,6 +142,7 @@ func NewConfiguredPicoWithStack(ssid, pass string, wificfg cyw43439.Config, cfg 
 		RandSeed:        elapsed.Nanoseconds() ^ cfg.RandSeed,
 		HardwareAddress: mac,
 		MTU:             mtu,
+		DNSServer:       cfg.DNSServer,
 	})
 	if err != nil {
 		return nil, errors.New("stack reset:" + err.Error())
