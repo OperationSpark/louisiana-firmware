@@ -18,6 +18,8 @@ import (
 // Linker-injected via Makefile.
 var (
 	mqttServerAddr string
+	mqttDeviceSlug string
+	mqttTopic      string
 	mqttUsername   string
 	mqttPassword   string
 )
@@ -97,7 +99,8 @@ func main() {
 
 	mqttC := &mqtt.Client{
 		ID:                "tinygo-sgp30",
-		Topic:             "tests/sgp30",
+		DeviceSlug:        mqttDeviceSlug,
+		Topic:             mqttTopic,
 		Logger:            logger,
 		Timeout:           mqttTimeout,
 		TCPBufSize:        mqttTCPBufferSize,
@@ -154,14 +157,13 @@ func main() {
 			continue
 		}
 		if !sample.Ready {
-			logger.Info("mqtt publish skipped: sgp30 warm-up active",
+			logger.Info("sgp30 warm-up active; publishing provisional reading",
 				slog.Int64("elapsedMS", sample.WarmupElapsed.Milliseconds()),
 				slog.Int64("remainingMS", sample.WarmupRemaining.Milliseconds()),
 				slog.Int64("warmupDurationMS", sgp30WarmupDuration.Milliseconds()),
 				slog.Uint64("eco2", uint64(sample.ECO2)),
 				slog.Uint64("tvoc", uint64(sample.TVOC)),
 			)
-			continue
 		}
 
 		temp, humidity, isCached, err := weatherSensor.ReadMeasurements()
@@ -246,7 +248,7 @@ func sampleSGP30Forever(logger *slog.Logger, debugLED machine.Pin, sgp *sgp30.De
 		}
 
 		if !sample.Ready {
-			logger.Info("sgp30 warm-up active; publish suppressed",
+			logger.Info("sgp30 warm-up active",
 				slog.Int("sample", sampleCount),
 				slog.Int64("elapsedMS", sample.WarmupElapsed.Milliseconds()),
 				slog.Int64("remainingMS", sample.WarmupRemaining.Milliseconds()),

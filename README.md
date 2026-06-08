@@ -1,6 +1,6 @@
 # aethernet-firmware
 
-TinyGo firmware for the Raspberry Pi Pico W. Reads temperature, humidity, and analog sensor data, displays it on an LCD, and publishes it to an MQTT broker over WiFi.
+TinyGo firmware for the Raspberry Pi Pico W. Reads temperature, humidity, and sensor data and publishes backend-compatible telemetry to MQTT over WiFi.
 
 ## Hardware connections
 
@@ -20,82 +20,70 @@ TinyGo firmware for the Raspberry Pi Pico W. Reads temperature, humidity, and an
 cp .env.example .env
 ```
 
-Edit `.env` with your WiFi credentials and MQTT broker address:
+Edit `.env` with your WiFi credentials and MQTT broker settings:
 
 ```bash
-WIFI_SSID=your_network_name   # 2.4 GHz only — the Pico W doesn't support 5 GHz
+WIFI_SSID=your_network_name
 WIFI_PASS=your_wifi_password
-MQTT_ADDR=192.168.1.x:1883    # your broker's IP (see step 2 if you need a local one)
-MQTT_USER=                    # leave blank for anonymous/local Mosquitto
-MQTT_PASS=
+MQTT_ADDR=os-mqtt-gateway.fly.dev:1883   # host:port only, no tcp:// prefix
+MQTT_USER=picopuff                       # MQTT account/user segment in the topic
+MQTT_PASS=your_mqtt_password
+MQTT_DEVICE=picopuff                     # DB device slug; defaults to firmware client ID
+MQTT_TOPIC=                              # optional full topic override; normally blank
 ```
 
-### 2. Start a local MQTT broker (if you don't have one)
+The default publish topic is:
 
-Open a dedicated terminal and run:
-
-```bash
-printf 'listener 1883 0.0.0.0\nallow_anonymous true\nlog_type all\n' > /tmp/aethernet-mosquitto.conf
-mosquitto -c /tmp/aethernet-mosquitto.conf -v
+```text
+louisianair/dev/<MQTT_USER>/<MQTT_DEVICE-or-client-id>/telemetry
 ```
 
-> If macOS prompts for firewall permission, allow incoming connections.
-> `allow_anonymous true` is fine for local lab use — don't use it on public networks.
+The firmware now fails fast if `MQTT_USER` is missing and no `MQTT_TOPIC` override is supplied, so it will not silently publish backend-bound readings to `tests/43`.
 
-Then get your Mac's WiFi IP to use as `MQTT_ADDR`:
-
-```bash
-ipconfig getifaddr en0   # try en1 if this prints nothing
-```
-
-### 3. Flash the Pico W
+### 2. Flash the Pico W
 
 Hold the **BOOTSEL** button, plug in the Pico, then release. Run:
 
 ```bash
-source .env && make flash/mqttsensor \
+source .env && make flash/sgp30mqtt \
   WIFI_SSID="$WIFI_SSID" WIFI_PASS="$WIFI_PASS" \
   MQTT_ADDR="$MQTT_ADDR" \
-  MQTT_USER="$MQTT_USER" MQTT_PASS="$MQTT_PASS"
+  MQTT_USER="$MQTT_USER" MQTT_PASS="$MQTT_PASS" \
+  MQTT_DEVICE="$MQTT_DEVICE" MQTT_TOPIC="$MQTT_TOPIC"
 ```
 
-### 4. Verify data is flowing
+Use `make flash/mqttsensor` instead if you are flashing the LCD/ADC firmware.
 
-In a new terminal, subscribe to the sensor topic:
+### 3. Verify data is flowing
+
+Subscribe to the exact backend topic:
 
 ```bash
-mosquitto_sub -h "$MAC_IP" -p 1883 -t 'tests/#' -v
+mosquitto_sub -h os-mqtt-gateway.fly.dev -p 1883 \
+  -u "$MQTT_USER" -P "$MQTT_PASS" \
+  -t "louisianair/dev/$MQTT_USER/$MQTT_DEVICE/telemetry" -v
 ```
 
-You should see readings arrive every second:
+Expected payload shape:
 
-```text
-tests/43 {"Voltage":1.6,"RawUInt16":32210,"Temperature":67.0,"Humidity":45,...}
+```json
+{
+  "source_reading_key": "picopuff:...",
+  "recorded_at": "2026-06-08T15:00:00Z",
+  "measurements": {
+    "temperature": 19.4,
+    "humidity": 45
+  }
+}
 ```
 
 ## Published data fields
 
 | Field | Description |
 |-------|-------------|
-| `Voltage` | ADC voltage (0–3.3 V) |
-| `RawUInt16` | Raw 16-bit ADC value (0–65535) |
-| `Temperature` | DHT11 temperature in °F |
-| `Humidity` | Relative humidity (%) |
-| `SinceBootNS` | Nanoseconds since the Pico booted |
-| `Timestamp` | Wall-clock time (populated after NTP sync) |
+| `source_reading_key` | Unique key generated from device slug, timestamp, and uptime |
+| `recorded_at` | RFC3339 UTC timestamp; publish is skipped until NTP succeeds |
+| `measurements.temperature` | DHT11 temperature converted to °C |
+| `measurements.humidity` | Relative humidity (%) |
 
-Readings are published to the topic `tests/43`.
-
-## Viewing data in MQTTX
-
-[MQTTX](https://mqttx.app/) is a free GUI MQTT client. Create a new connection with:
-
-| Setting | Value |
-|---------|-------|
-| Host | your `MAC_IP` |
-| Port | `1883` |
-| Protocol | `mqtt://` |
-| SSL/TLS | off |
-| Username / Password | leave blank |
-
-After connecting, subscribe to `tests/#` to see live readings.
+The backend must have a matching `devices.source_device_key` row for `MQTT_DEVICE` under the `community_device` source.

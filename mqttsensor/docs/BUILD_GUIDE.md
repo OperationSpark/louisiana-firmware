@@ -218,11 +218,11 @@ Set these in your shell before building:
 ```bash
 export WIFI_SSID="YourNetworkName"
 export WIFI_PASS="YourPassword"
-export MQTT_ADDR="192.168.1.100:1883"
-
-# Optional authentication
-export MQTT_USER="username"
+export MQTT_ADDR="os-mqtt-gateway.fly.dev:1883"
+export MQTT_USER="picopuff"
 export MQTT_PASS="password"
+export MQTT_DEVICE="picopuff"
+export MQTT_TOPIC=""
 ```
 
 ### MQTT Broker Setup
@@ -233,13 +233,14 @@ You'll need an MQTT broker on your network. Options include:
 - **Home Assistant** (built-in broker)
 - **Cloud services**: HiveMQ, CloudMQTT, AWS IoT
 
-The sensor publishes readings that include:
+The sensor publishes backend-compatible telemetry that includes:
 
-- Voltage (0-3.3V scaled from ADC)
-- Raw 16-bit unsigned int ADC value (`0`-`65535`)
-- Temperature (°F)
-- Humidity (%)
-- Timestamp (if NTP sync succeeded)
+- `source_reading_key` generated from device slug, timestamp, and uptime
+- `recorded_at` as RFC3339 UTC time
+- `measurements.temperature` converted to °C
+- `measurements.humidity` (%)
+
+Default topic: `louisianair/dev/<MQTT_USER>/<MQTT_DEVICE-or-client-id>/telemetry`.
 
 ### Sensor Calibration Notes
 
@@ -280,6 +281,8 @@ tinygo flash -target=pico-w -stack-size=16kb -monitor \
   -ldflags="-X 'github.com/operationspark/aethernet-firmware/mqttsensor/cyw43439.ssid=${WIFI_SSID}' \
   -X 'github.com/operationspark/aethernet-firmware/mqttsensor/cyw43439.pass=${WIFI_PASS}' \
   -X 'main.mqttServerAddr=${MQTT_ADDR}' \
+  -X 'main.mqttDeviceSlug=${MQTT_DEVICE}' \
+  -X 'main.mqttTopic=${MQTT_TOPIC}' \
   -X 'main.mqttUsername=${MQTT_USER}' \
   -X 'main.mqttPassword=${MQTT_PASS}'" \
   ./mqttsensor/...
