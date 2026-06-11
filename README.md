@@ -52,7 +52,15 @@ source .env && make flash/sgp30mqtt \
   MQTT_DEVICE="$MQTT_DEVICE" MQTT_TOPIC="$MQTT_TOPIC"
 ```
 
-Use `make flash/mqttsensor` instead if you are flashing the LCD/ADC firmware.
+If you are flashing the LCD/ADC firmware, use `flash/mqttsensor` instead with the same variables (including `MQTT_DEVICE`):
+
+```bash
+source .env && make flash/mqttsensor \
+  WIFI_SSID="$WIFI_SSID" WIFI_PASS="$WIFI_PASS" \
+  MQTT_ADDR="$MQTT_ADDR" \
+  MQTT_USER="$MQTT_USER" MQTT_PASS="$MQTT_PASS" \
+  MQTT_DEVICE="$MQTT_DEVICE" MQTT_TOPIC="$MQTT_TOPIC"
+```
 
 ### 3. Verify data is flowing
 
