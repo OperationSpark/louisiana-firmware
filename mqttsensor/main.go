@@ -25,6 +25,14 @@ import (
 // tinygo build -ldflags="-X 'main.mqttServerAddr=10.0.0.9:1883'
 var mqttServerAddr string
 
+// mqttDeviceSlug is the stable device identifier used in the MQTT telemetry topic.
+// Optional - defaults to the MQTT client ID when empty.
+var mqttDeviceSlug string
+
+// mqttTopic is an optional full MQTT topic override.
+// Leave empty to publish to louisianair/dev/<MQTT_USER>/<MQTT_DEVICE-or-client-id>/telemetry.
+var mqttTopic string
+
 // mqttUsername is the MQTT broker username for authentication.
 // Optional - if empty, anonymous connection is attempted.
 // Can be passed via linker flags.
@@ -111,7 +119,7 @@ func main() {
 		}
 	}
 
-	lcdDev.BacklightOn(false)
+	lcdDev.BacklightOn(true)
 	lcdDev.ClearDisplay()
 
 	// Create channel and start LCD handler goroutine
@@ -121,6 +129,8 @@ func main() {
 
 	mqttC := &mqtt.Client{
 		ID:                "tinygo-mqtt",
+		DeviceSlug:        mqttDeviceSlug,
+		Topic:             mqttTopic,
 		Logger:            logger,
 		Timeout:           5 * time.Second,
 		TCPBufSize:        2030, // MTU - ethhdr - iphdr - tcphdr

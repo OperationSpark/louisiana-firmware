@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/netip"
 	"runtime"
+	"strconv"
 	"time"
 
 	"github.com/operationspark/aethernet-firmware/mqttsensor/cyw43439"
@@ -17,23 +18,25 @@ import (
 
 var (
 	pubFlags, _ = mqtt.NewPublishFlags(mqtt.QoS0, false, false)
-	pubVar      = mqtt.VariablesPublish{
-		TopicName:        []byte("tests/43"),
-		PacketIdentifier: 0xc0fe,
-	}
 )
+
+const topicPrefix = "louisianair/dev"
 
 type SensorReading struct {
 	Voltage     float32
 	RawUInt16   uint16        // Raw ADC value
 	Temperature float32       // Temperature from DHT11
 	Humidity    float32       // Relative humidity percentage from DHT11
+	ECO2        uint32        // CO2 equivalent (ppm) from SGP30. Zero if sensor not present.
+	TVOC        uint32        // Total VOC (ppb) from SGP30. Zero if sensor not present.
 	SinceBootNS time.Duration // Nanoseconds since boot.
 	Timestamp   time.Time     // Wall-clock time. Zero if NTP sync failed.
 }
 
 type Client struct {
 	ID                string
+	DeviceSlug        string // Stable DB device slug used in the LouisianAir telemetry topic. Defaults to ID.
+	Topic             string // Optional full MQTT topic override. Defaults to louisianair/dev/<Username>/<DeviceSlug>/telemetry.
 	Timeout           time.Duration
 	TCPBufSize        int
 	Logger            *slog.Logger
@@ -53,7 +56,17 @@ func (c *Client) ConnectAndPublish(
 ) error {
 	const pollTime = 5 * time.Millisecond
 
+	topic, err := c.publishTopic()
+	if err != nil {
+		return err
+	}
+	pubVar := mqtt.VariablesPublish{
+		TopicName:        []byte(topic),
+		PacketIdentifier: 0xc0fe,
+	}
+
 	c.Logger.Info("MQTT address: " + addr)
+	c.Logger.Info("MQTT topic: " + topic)
 
 	// Parse hostname and port from addr (e.g., "hostname:8883")
 	mqttHost, portStr, err := splitHostPort(addr)
@@ -173,6 +186,7 @@ func (c *Client) ConnectAndPublish(
 			continue
 		}
 
+		c.Logger.Info("mqtt:connected", slog.String("topic", topic))
 		lcd.Send(lcdMessages, "MQTT Connected", "Publishing...")
 
 		heartbeat := time.NewTicker(c.HeartbeatInterval)
@@ -180,9 +194,9 @@ func (c *Client) ConnectAndPublish(
 		for mqttClient.IsConnected() {
 			select {
 			case reading := <-readings:
-				payload, err := json.Marshal(reading)
+				payload, err := canonicalPayload(c.deviceSlug(), reading)
 				if err != nil {
-					c.Logger.Error("mqtt:marshal-failed", slog.Any("reason", err))
+					c.Logger.Error("mqtt:canonical-payload-failed", slog.Any("reason", err))
 					continue
 				}
 				conn.SetDeadline(time.Now().Add(c.Timeout))
@@ -193,6 +207,7 @@ func (c *Client) ConnectAndPublish(
 					continue
 				}
 				c.Logger.Info("published message",
+					slog.String("topic", topic),
 					slog.Uint64("packetID", uint64(pubVar.PacketIdentifier)),
 				)
 				err = mqttClient.HandleNext()
@@ -222,6 +237,65 @@ func (c *Client) ConnectAndPublish(
 		closeConn("disconnected")
 		runtime.Gosched()
 	}
+}
+
+type telemetryPayload struct {
+	SourceReadingKey string             `json:"source_reading_key"`
+	RecordedAt       string             `json:"recorded_at"`
+	Measurements     map[string]float64 `json:"measurements"`
+}
+
+func (c *Client) publishTopic() (string, error) {
+	if c.Topic != "" {
+		return c.Topic, nil
+	}
+	deviceSlug := c.deviceSlug()
+	if c.Username == "" {
+		return "", errors.New("mqtt username is required to build LouisianAir telemetry topic")
+	}
+	if deviceSlug == "" {
+		return "", errors.New("mqtt device slug is required to build LouisianAir telemetry topic")
+	}
+	return topicPrefix + "/" + c.Username + "/" + deviceSlug + "/telemetry", nil
+}
+
+func (c *Client) deviceSlug() string {
+	if c.DeviceSlug != "" {
+		return c.DeviceSlug
+	}
+	return c.ID
+}
+
+func canonicalPayload(deviceSlug string, reading SensorReading) ([]byte, error) {
+	if reading.Timestamp.IsZero() {
+		return nil, errors.New("timestamp is required for canonical telemetry")
+	}
+	if deviceSlug == "" {
+		return nil, errors.New("device slug is required for canonical telemetry")
+	}
+
+	recordedAt := reading.Timestamp.UTC()
+	measurements := map[string]float64{
+		"temperature": fahrenheitToCelsius(float64(reading.Temperature)),
+		"humidity":    float64(reading.Humidity),
+	}
+	// SGP30 reports equivalent CO₂ (≥400 ppm when valid); a zero eCO2 means no gas
+	// sensor is attached, so only emit gas metrics for SGP30-equipped devices.
+	if reading.ECO2 != 0 {
+		measurements["eco2"] = float64(reading.ECO2)
+		measurements["tvoc"] = float64(reading.TVOC)
+	}
+	payload := telemetryPayload{
+		SourceReadingKey: deviceSlug + ":" + strconv.FormatInt(recordedAt.UnixNano(), 10) + ":" + strconv.FormatInt(reading.SinceBootNS.Nanoseconds(), 10),
+		RecordedAt:       recordedAt.Format(time.RFC3339),
+		Measurements:     measurements,
+	}
+
+	return json.Marshal(payload)
+}
+
+func fahrenheitToCelsius(tempF float64) float64 {
+	return (tempF - 32) / 1.8
 }
 
 // splitHostPort splits a host:port string into separate host and port components.

@@ -1,161 +1,97 @@
 # aethernet-firmware
 
-TinyGo firmware for Raspberry Pi Pico W that reads sensor data and publishes it to an MQTT broker.
+TinyGo firmware for the Raspberry Pi Pico W. Reads temperature, humidity, and sensor data and publishes backend-compatible telemetry to MQTT over WiFi.
 
-## Features
+## Hardware connections
 
-- Reads analog sensor values from ADC0 (16-bit resolution)
-- Reads DHT11 temperature and humidity on `GP0`
-- Displays readings on 16x2 LCD display (HD44780 over I2C)
-- Publishes sensor data to MQTT broker over WiFi
+| Component | Pin |
+|-----------|-----|
+| Analog sensor | `ADC0` / `GP26` |
+| DHT11 data | `GP0` |
+| LCD SDA | `GP4` |
+| LCD SCL | `GP5` |
+| Debug LED | `GP21` |
 
-## Hardware
+## Setup
 
-- Raspberry Pi Pico W
-- Analog sensor connected to `ADC0` / `GP26`
-- DHT11 data connected to `GP0`
-- 16x2 LCD display (HD44780 with I2C adapter)
-  - `SDA`: `GP4`
-  - `SCL`: `GP5`
-- Debug LED on `GP21`
-
-## Configuration
-
-Configure WiFi credentials and MQTT broker address via environment variables:
-
-- `WIFI_SSID` - WiFi network name
-- `WIFI_PASS` - WiFi password
-- `MQTT_ADDR` - MQTT broker address, (e.g., `192.168.87.23:1883` or  `10.0.0.9:1883`)
-- `MQTT_USER` - MQTT username
-- `MQTT_PASS` - MQTT password
-
-These are injected at build time using TinyGo linker flags.
-
-## Flashing
+### 1. Copy and fill in your environment
 
 ```bash
-make flash/mqttsensor \
+cp .env.example .env
+```
+
+Edit `.env` with your WiFi credentials and MQTT broker settings:
+
+```bash
+WIFI_SSID=your_network_name
+WIFI_PASS=your_wifi_password
+MQTT_ADDR=os-mqtt-gateway.fly.dev:1883   # host:port only, no tcp:// prefix
+MQTT_USER=picopuff                       # MQTT account/user segment in the topic
+MQTT_PASS=your_mqtt_password
+MQTT_DEVICE=picopuff                     # DB device slug; defaults to firmware client ID
+MQTT_TOPIC=                              # optional full topic override; normally blank
+```
+
+The default publish topic is:
+
+```text
+louisianair/dev/<MQTT_USER>/<MQTT_DEVICE-or-client-id>/telemetry
+```
+
+The firmware now fails fast if `MQTT_USER` is missing and no `MQTT_TOPIC` override is supplied, so it will not silently publish backend-bound readings to `tests/43`.
+
+### 2. Flash the Pico W
+
+Hold the **BOOTSEL** button, plug in the Pico, then release. Run:
+
+```bash
+source .env && make flash/sgp30mqtt \
   WIFI_SSID="$WIFI_SSID" WIFI_PASS="$WIFI_PASS" \
   MQTT_ADDR="$MQTT_ADDR" \
-  MQTT_USER="$MQTT_USER" MQTT_PASS="$MQTT_PASS"
+  MQTT_USER="$MQTT_USER" MQTT_PASS="$MQTT_PASS" \
+  MQTT_DEVICE="$MQTT_DEVICE" MQTT_TOPIC="$MQTT_TOPIC"
 ```
 
-The firmware currently publishes sensor readings to:
-
-```text
-tests/43
-```
-
-## Local MQTT Broker Setup
-
-Use this when the shared/remote broker blocks topics by ACL or when you want to test locally.
-
-### 1. Install Mosquitto
+If you are flashing the LCD/ADC firmware, use `flash/mqttsensor` instead with the same variables (including `MQTT_DEVICE`):
 
 ```bash
-brew install mosquitto
-```
-
-### 2. Start a local broker
-
-```bash
-printf 'listener 1883 0.0.0.0\nallow_anonymous true\nlog_type all\n' > /tmp/aethernet-mosquitto.conf
-mosquitto -c /tmp/aethernet-mosquitto.conf -v
-```
-
-Leave this terminal running. If macOS asks for firewall permission, allow incoming connections.
-
-> Note: `allow_anonymous true` is for local lab testing only. Do not use this on public or untrusted networks.
-
-### 3. Get your Mac WiFi IP
-
-```bash
-MAC_IP=$(ipconfig getifaddr en0)
-echo "$MAC_IP"
-```
-
-If that prints nothing, try:
-
-```bash
-MAC_IP=$(ipconfig getifaddr en1)
-echo "$MAC_IP"
-```
-
-### 4. Verify the broker with Mosquitto CLI
-
-Terminal A - subscribe:
-
-```bash
-mosquitto_sub -h "$MAC_IP" -p 1883 -t 'tests/#' -v
-```
-
-Terminal B - publish a test message:
-
-```bash
-mosquitto_pub -h "$MAC_IP" -p 1883 -t 'tests/43' -m '{"test":"hello"}'
-```
-
-Terminal A should show:
-
-```text
-tests/43 {"test":"hello"}
-```
-
-### 5. Flash Pico W to publish to the local broker
-
-```bash
-MAC_IP=$(ipconfig getifaddr en0)
-
-make flash/mqttsensor \
+source .env && make flash/mqttsensor \
   WIFI_SSID="$WIFI_SSID" WIFI_PASS="$WIFI_PASS" \
-  MQTT_ADDR="$MAC_IP:1883" \
-  MQTT_USER="" MQTT_PASS=""
+  MQTT_ADDR="$MQTT_ADDR" \
+  MQTT_USER="$MQTT_USER" MQTT_PASS="$MQTT_PASS" \
+  MQTT_DEVICE="$MQTT_DEVICE" MQTT_TOPIC="$MQTT_TOPIC"
 ```
 
-Watch the subscriber terminal. Expected output:
+### 3. Verify data is flowing
 
-```text
-tests/43 {"Voltage":...,"RawUInt16":...,"Temperature":...,"Humidity":...}
-```
-
-## MQTTX Local Connection
-
-Create a new MQTTX connection with:
-
-```text
-Name: local aethernet
-Host: <your MAC_IP>
-Port: 1883
-Protocol: mqtt://
-SSL/TLS: off
-Username: blank
-Password: blank
-Client ID: mqttx-local-anything
-Clean Start: true
-Keep Alive: 60
-```
-
-After connecting, add a subscription:
-
-```text
-tests/#
-```
-
-To verify MQTTX receives messages, publish from a terminal:
+Subscribe to the exact backend topic:
 
 ```bash
-mosquitto_pub -h "$MAC_IP" -p 1883 -t 'tests/43' -m '{"test":"mqttx"}'
+mosquitto_sub -h os-mqtt-gateway.fly.dev -p 1883 \
+  -u "$MQTT_USER" -P "$MQTT_PASS" \
+  -t "louisianair/dev/$MQTT_USER/$MQTT_DEVICE/telemetry" -v
 ```
 
-## Sensor Readings
+Expected payload shape:
 
-Published readings include:
+```json
+{
+  "source_reading_key": "picopuff:...",
+  "recorded_at": "2026-06-08T15:00:00Z",
+  "measurements": {
+    "temperature": 19.4,
+    "humidity": 45
+  }
+}
+```
 
-- `Voltage` - ADC voltage, 0-3.3V
-- `RawUInt16` - raw 16-bit ADC value, 0-65535
-- `Temperature` - DHT11 temperature
-- `Humidity` - DHT11 relative humidity percentage
-- `SinceBootNS` - time since boot
-- `Timestamp` - wall-clock time if NTP sync succeeded
+## Published data fields
 
-Readings are buffered before publishing to handle temporary network latency.
+| Field | Description |
+|-------|-------------|
+| `source_reading_key` | Unique key generated from device slug, timestamp, and uptime |
+| `recorded_at` | RFC3339 UTC timestamp; publish is skipped until NTP succeeds |
+| `measurements.temperature` | DHT11 temperature converted to °C |
+| `measurements.humidity` | Relative humidity (%) |
+
+The backend must have a matching `devices.source_device_key` row for `MQTT_DEVICE` under the `community_device` source.

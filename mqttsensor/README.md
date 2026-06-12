@@ -1,13 +1,13 @@
 # MQTT Sensor
 
-TinyGo firmware for Raspberry Pi Pico W that reads sensor data and publishes it to an MQTT broker.
+TinyGo firmware for Raspberry Pi Pico W that reads sensor data and publishes LouisianAir backend-compatible telemetry to MQTT.
 
 ## Features
 
 - Reads analog sensor values from ADC0 (16-bit resolution)
 - Reads DHT11 temperature and humidity on `GP0`
 - Displays readings on 16x2 LCD display (HD44780 over I2C)
-- Publishes sensor data to MQTT broker over WiFi
+- Publishes canonical telemetry JSON over MQTT
 
 ## Hardware
 
@@ -21,15 +21,21 @@ TinyGo firmware for Raspberry Pi Pico W that reads sensor data and publishes it 
 
 ## Configuration
 
-Configure WiFi credentials and MQTT broker address via environment variables:
+Configure WiFi and MQTT via environment variables injected by TinyGo linker flags:
 
 - `WIFI_SSID` - WiFi network name
 - `WIFI_PASS` - WiFi password
-- `MQTT_ADDR` - MQTT broker address, for example `192.168.87.23:1883`
-- `MQTT_USER` - MQTT username, optional
-- `MQTT_PASS` - MQTT password, optional
+- `MQTT_ADDR` - MQTT broker address as `host:port`, for example `os-mqtt-gateway.fly.dev:1883`
+- `MQTT_USER` - MQTT username; required unless `MQTT_TOPIC` is set
+- `MQTT_PASS` - MQTT password
+- `MQTT_DEVICE` - backend device slug; optional, defaults to firmware client ID
+- `MQTT_TOPIC` - optional full topic override; normally leave blank
 
-These are injected at build time using TinyGo linker flags.
+Default publish topic:
+
+```text
+louisianair/dev/<MQTT_USER>/<MQTT_DEVICE-or-client-id>/telemetry
+```
 
 ## Flashing
 
@@ -37,125 +43,40 @@ These are injected at build time using TinyGo linker flags.
 make flash/mqttsensor \
   WIFI_SSID="$WIFI_SSID" WIFI_PASS="$WIFI_PASS" \
   MQTT_ADDR="$MQTT_ADDR" \
-  MQTT_USER="$MQTT_USER" MQTT_PASS="$MQTT_PASS"
+  MQTT_USER="$MQTT_USER" MQTT_PASS="$MQTT_PASS" \
+  MQTT_DEVICE="$MQTT_DEVICE" MQTT_TOPIC="$MQTT_TOPIC"
 ```
 
-The firmware currently publishes sensor readings to:
+For the shared Fly broker, use `MQTT_ADDR="os-mqtt-gateway.fly.dev:1883"` without a `tcp://` prefix.
 
-```text
-tests/43
-```
-
-## Local MQTT Broker Setup
-
-Use this when the shared/remote broker blocks topics by ACL or when you want to test locally.
-
-### 1. Install Mosquitto
+## Verifying MQTT output
 
 ```bash
-brew install mosquitto
+mosquitto_sub -h os-mqtt-gateway.fly.dev -p 1883 \
+  -u "$MQTT_USER" -P "$MQTT_PASS" \
+  -t "louisianair/dev/$MQTT_USER/$MQTT_DEVICE/telemetry" -v
 ```
 
-### 2. Start a local broker
+Expected payload:
 
-```bash
-printf 'listener 1883 0.0.0.0\nallow_anonymous true\nlog_type all\n' > /tmp/aethernet-mosquitto.conf
-mosquitto -c /tmp/aethernet-mosquitto.conf -v
-```
-
-Leave this terminal running. If macOS asks for firewall permission, allow incoming connections.
-
-> Note: `allow_anonymous true` is for local lab testing only. Do not use this on public or untrusted networks.
-
-### 3. Get your Mac WiFi IP
-
-```bash
-MAC_IP=$(ipconfig getifaddr en0)
-echo "$MAC_IP"
-```
-
-If that prints nothing, try:
-
-```bash
-MAC_IP=$(ipconfig getifaddr en1)
-echo "$MAC_IP"
-```
-
-### 4. Verify the broker with Mosquitto CLI
-
-Terminal A - subscribe:
-
-```bash
-mosquitto_sub -h "$MAC_IP" -p 1883 -t 'tests/#' -v
-```
-
-Terminal B - publish a test message:
-
-```bash
-mosquitto_pub -h "$MAC_IP" -p 1883 -t 'tests/43' -m '{"test":"hello"}'
-```
-
-Terminal A should show:
-
-```text
-tests/43 {"test":"hello"}
-```
-
-### 5. Flash Pico W to publish to the local broker
-
-```bash
-MAC_IP=$(ipconfig getifaddr en0)
-
-make flash/mqttsensor \
-  WIFI_SSID="$WIFI_SSID" WIFI_PASS="$WIFI_PASS" \
-  MQTT_ADDR="$MAC_IP:1883" \
-  MQTT_USER="" MQTT_PASS=""
-```
-
-Watch the subscriber terminal. Expected output:
-
-```text
-tests/43 {"Voltage":...,"RawUInt16":...,"Temperature":...,"Humidity":...}
-```
-
-## MQTTX Local Connection
-
-Create a new MQTTX connection with:
-
-```text
-Name: local aethernet
-Host: <your MAC_IP>
-Port: 1883
-Protocol: mqtt://
-SSL/TLS: off
-Username: blank
-Password: blank
-Client ID: mqttx-local-anything
-Clean Start: true
-Keep Alive: 60
-```
-
-After connecting, add a subscription:
-
-```text
-tests/#
-```
-
-To verify MQTTX receives messages, publish from a terminal:
-
-```bash
-mosquitto_pub -h "$MAC_IP" -p 1883 -t 'tests/43' -m '{"test":"mqttx"}'
+```json
+{
+  "source_reading_key": "picopuff:...",
+  "recorded_at": "2026-06-08T15:00:00Z",
+  "measurements": {
+    "temperature": 19.4,
+    "humidity": 45
+  }
+}
 ```
 
 ## Sensor Readings
 
-Published readings include:
+Published readings use the backend community-device ingest contract:
 
-- `Voltage` - ADC voltage, 0-3.3V
-- `RawUInt16` - raw 16-bit ADC value, 0-65535
-- `Temperature` - DHT11 temperature
-- `Humidity` - DHT11 relative humidity percentage
-- `SinceBootNS` - time since boot
-- `Timestamp` - wall-clock time if NTP sync succeeded
+- `source_reading_key` - unique reading key generated from device slug, timestamp, and uptime
+- `recorded_at` - RFC3339 UTC timestamp; publish is skipped until NTP time is available
+- `measurements.temperature` - DHT11 temperature converted to °C
+- `measurements.humidity` - DHT11 relative humidity percentage
 
 Readings are buffered before publishing to handle temporary network latency.
