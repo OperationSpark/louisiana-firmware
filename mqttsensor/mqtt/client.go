@@ -285,6 +285,13 @@ func canonicalPayload(deviceSlug string, reading SensorReading) ([]byte, error) 
 		measurements["eco2"] = float64(reading.ECO2)
 		measurements["tvoc"] = float64(reading.TVOC)
 	}
+	// Analog gas sensors (e.g. SEN0568 H2S on ADC0) report a voltage; a zero
+	// voltage means no analog sensor is attached, so only emit these for
+	// ADC-equipped devices. Raw is the 16-bit ADC value behind the voltage.
+	if reading.Voltage != 0 {
+		measurements["voltage"] = float64(reading.Voltage)
+		measurements["h2s_raw"] = float64(reading.RawUInt16)
+	}
 	payload := telemetryPayload{
 		SourceReadingKey: deviceSlug + ":" + strconv.FormatInt(recordedAt.UnixNano(), 10) + ":" + strconv.FormatInt(reading.SinceBootNS.Nanoseconds(), 10),
 		RecordedAt:       recordedAt.Format(time.RFC3339),
