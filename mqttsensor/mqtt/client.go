@@ -24,6 +24,7 @@ const topicPrefix = "louisianair/dev"
 
 type SensorReading struct {
 	Voltage     float32
+	PPM         float32
 	RawUInt16   uint16        // Raw ADC value
 	Temperature float32       // Temperature from DHT11
 	Humidity    float32       // Relative humidity percentage from DHT11

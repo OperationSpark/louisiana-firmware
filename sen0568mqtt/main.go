@@ -57,7 +57,7 @@ const (
 
 type h2sSample struct {
 	Raw             uint16
-	Voltage         float32
+	PPM             float32
 	WarmupElapsed   time.Duration
 	WarmupRemaining time.Duration
 	Ready           bool
@@ -181,7 +181,7 @@ func main() {
 				slog.Int64("remainingMS", sample.WarmupRemaining.Milliseconds()),
 				slog.Int64("warmupDurationMS", warmupDuration.Milliseconds()),
 				slog.Uint64("raw", uint64(sample.Raw)),
-				slog.Float64("voltage", float64(sample.Voltage)),
+				slog.Float64("PPM", float64(sample.PPM)),
 			)
 		}
 
@@ -195,7 +195,7 @@ func main() {
 		}
 
 		reading := mqtt.SensorReading{
-			Voltage:     sample.Voltage,
+			PPM:         sample.PPM,
 			RawUInt16:   sample.Raw,
 			Temperature: temp,
 			Humidity:    humidity,
@@ -218,7 +218,7 @@ func main() {
 				slog.Int64("elapsedMS", sample.WarmupElapsed.Milliseconds()),
 				slog.Int64("warmupDurationMS", warmupDuration.Milliseconds()),
 				slog.Uint64("raw", uint64(sample.Raw)),
-				slog.Float64("voltage", float64(sample.Voltage)),
+				slog.Float64("PPM", float64(sample.PPM)),
 			)
 			loggedFirstPublishAfterWarmup = true
 		}
@@ -227,6 +227,20 @@ func main() {
 		time.Sleep(publishBlinkDuration)
 		debugLED.Low()
 	}
+}
+
+func rawToPPM(raw uint16) float32 {
+	voltage := (float32(raw) / float32(max16Bit)) * sysV
+	// Replace from sensor data sheet
+	const vZero float32 = 0.4
+	const scaleFactor float32 = 100
+
+	PPM := (voltage - vZero) * scaleFactor
+
+	if PPM < 0 {
+		return 0
+	}
+	return PPM
 }
 
 func sampleForever(logger *slog.Logger, debugLED machine.Pin, sensor machine.ADC, warmupStartedAt time.Time, samples chan h2sSample) {
@@ -251,7 +265,7 @@ func sampleForever(logger *slog.Logger, debugLED machine.Pin, sensor machine.ADC
 		warmupStatus := warmup.Status(warmupStartedAt, time.Now(), warmupDuration)
 		sample := h2sSample{
 			Raw:             raw,
-			Voltage:         rawToVoltage(raw),
+			PPM:             rawToPPM(raw),
 			WarmupElapsed:   warmupStatus.Elapsed,
 			WarmupRemaining: warmupStatus.Remaining,
 			Valid:           true,
@@ -265,7 +279,7 @@ func sampleForever(logger *slog.Logger, debugLED machine.Pin, sensor machine.ADC
 				slog.Int64("remainingMS", sample.WarmupRemaining.Milliseconds()),
 				slog.Int64("warmupDurationMS", warmupDuration.Milliseconds()),
 				slog.Uint64("raw", uint64(sample.Raw)),
-				slog.Float64("voltage", float64(sample.Voltage)),
+				slog.Float64("PPM", float64(sample.PPM)),
 			)
 			publishLatestSample(samples, sample)
 			continue
@@ -273,7 +287,7 @@ func sampleForever(logger *slog.Logger, debugLED machine.Pin, sensor machine.ADC
 
 		logger.Info("sen0568 read",
 			slog.Uint64("raw", uint64(sample.Raw)),
-			slog.Float64("voltage", float64(sample.Voltage)),
+			slog.Float64("PPM", float64(sample.PPM)),
 		)
 		publishLatestSample(samples, sample)
 	}
@@ -316,7 +330,7 @@ func waitForFirstReading(logger *slog.Logger, debugLED machine.Pin, sensor machi
 		logger.Info("sen0568:first-read success",
 			slog.Uint64("attempt", attempt),
 			slog.Uint64("raw", uint64(raw)),
-			slog.Float64("voltage", float64(rawToVoltage(raw))),
+			slog.Float64("PPM", float64(rawToPPM(raw))),
 		)
 		return
 	}
