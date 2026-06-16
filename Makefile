@@ -32,6 +32,30 @@ build/mqttsensor:
 		-X 'main.mqttPassword=${MQTT_PASS}'"; \
 	tinygo build -target=pico-w -stack-size=16kb -ldflags="$$LDFLAGS" ./mqttsensor/...
 
+## build/sen0568mqtt: build the SEN0568 H2S (ADC0/GP26) + DHT11 MQTT app. Pass env vars - MQTT_ADDR, WIFI_SSID, WIFI_PASS, [MQTT_USER, MQTT_PASS, MQTT_DEVICE, MQTT_TOPIC]
+.PHONY: build/sen0568mqtt
+build/sen0568mqtt:
+	@LDFLAGS="-X 'github.com/operationspark/aethernet-firmware/mqttsensor/cyw43439.ssid=${WIFI_SSID}' \
+		-X 'github.com/operationspark/aethernet-firmware/mqttsensor/cyw43439.pass=${WIFI_PASS}' \
+		-X 'main.mqttServerAddr=${MQTT_ADDR}' \
+		-X 'main.mqttDeviceSlug=${MQTT_DEVICE}' \
+		-X 'main.mqttTopic=${MQTT_TOPIC}' \
+		-X 'main.mqttUsername=${MQTT_USER}' \
+		-X 'main.mqttPassword=${MQTT_PASS}'"; \
+	tinygo build -target=pico-w -stack-size=16kb -ldflags="$$LDFLAGS" ./sen0568mqtt/...
+
+## flash/sen0568mqtt: flash the SEN0568 H2S (ADC0/GP26) + DHT11 MQTT app. Pass env vars - MQTT_ADDR, WIFI_SSID, WIFI_PASS, [MQTT_USER, MQTT_PASS, MQTT_DEVICE, MQTT_TOPIC]
+.PHONY: flash/sen0568mqtt
+flash/sen0568mqtt:
+	@LDFLAGS="-X 'github.com/operationspark/aethernet-firmware/mqttsensor/cyw43439.ssid=${WIFI_SSID}' \
+		-X 'github.com/operationspark/aethernet-firmware/mqttsensor/cyw43439.pass=${WIFI_PASS}' \
+		-X 'main.mqttServerAddr=${MQTT_ADDR}' \
+		-X 'main.mqttDeviceSlug=${MQTT_DEVICE}' \
+		-X 'main.mqttTopic=${MQTT_TOPIC}' \
+		-X 'main.mqttUsername=${MQTT_USER}' \
+		-X 'main.mqttPassword=${MQTT_PASS}'"; \
+	tinygo flash -target=pico-w -stack-size=16kb -monitor -ldflags="$$LDFLAGS" ./sen0568mqtt/...
+
 ## flash/i2cscan: scan I2C devices on GP4/GP5.
 .PHONY: flash/i2cscan
 flash/i2cscan:
