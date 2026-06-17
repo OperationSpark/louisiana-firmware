@@ -25,6 +25,7 @@ const topicPrefix = "louisianair/dev"
 type SensorReading struct {
 	Voltage     float32
 	PPM         float32
+	Ratio       float32       // SEN0568 relative H2S index R0/Rs; ~1 in clean air, rises with H2S. Zero if unused.
 	RawUInt16   uint16        // Raw ADC value
 	Temperature float32       // Temperature from DHT11
 	Humidity    float32       // Relative humidity percentage from DHT11
@@ -292,6 +293,11 @@ func canonicalPayload(deviceSlug string, reading SensorReading) ([]byte, error) 
 	if reading.Voltage != 0 {
 		measurements["voltage"] = float64(reading.Voltage)
 		measurements["h2s_raw"] = float64(reading.RawUInt16)
+		// Relative H2S index (R0/Rs); only present once the warm-up baseline is
+		// captured, so a zero means "not yet available", not "clean air".
+		if reading.Ratio != 0 {
+			measurements["h2s_index"] = float64(reading.Ratio)
+		}
 	}
 	payload := telemetryPayload{
 		SourceReadingKey: deviceSlug + ":" + strconv.FormatInt(recordedAt.UnixNano(), 10) + ":" + strconv.FormatInt(reading.SinceBootNS.Nanoseconds(), 10),

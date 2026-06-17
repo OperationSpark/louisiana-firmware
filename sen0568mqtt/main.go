@@ -44,6 +44,11 @@ const (
 	max16Bit uint16  = 65535
 	sysV     float32 = 3.3
 
+	// SEN0568 breakout load resistor (ohms). The sensor is a resistive MOS
+	// element in a divider: VCC - Rs - AOUT - RL - GND. VCC is tied to the
+	// 3.3V rail (= ADC reference), so the reading is ratiometric.
+	rLoad float32 = 4700
+
 	// Burst sampling smooths out ADC noise: discard the first read, then
 	// average a burst.
 	burstSize          = 32
@@ -57,7 +62,9 @@ const (
 
 type h2sSample struct {
 	Raw             uint16
-	PPM             float32
+	Voltage         float32
+	Rs              float32 // Sensor resistance (ohms), derived from the divider.
+	Ratio           float32 // Relative H2S index R0/Rs: ~1 in clean air, rises with H2S. 0 until baseline captured.
 	WarmupElapsed   time.Duration
 	WarmupRemaining time.Duration
 	Ready           bool
@@ -181,7 +188,7 @@ func main() {
 				slog.Int64("remainingMS", sample.WarmupRemaining.Milliseconds()),
 				slog.Int64("warmupDurationMS", warmupDuration.Milliseconds()),
 				slog.Uint64("raw", uint64(sample.Raw)),
-				slog.Float64("PPM", float64(sample.PPM)),
+				slog.Float64("rsOhms", float64(sample.Rs)),
 			)
 		}
 
@@ -195,8 +202,9 @@ func main() {
 		}
 
 		reading := mqtt.SensorReading{
-			PPM:         sample.PPM,
+			Voltage:     sample.Voltage,
 			RawUInt16:   sample.Raw,
+			Ratio:       sample.Ratio,
 			Temperature: temp,
 			Humidity:    humidity,
 			SinceBootNS: time.Since(start),
@@ -218,7 +226,7 @@ func main() {
 				slog.Int64("elapsedMS", sample.WarmupElapsed.Milliseconds()),
 				slog.Int64("warmupDurationMS", warmupDuration.Milliseconds()),
 				slog.Uint64("raw", uint64(sample.Raw)),
-				slog.Float64("PPM", float64(sample.PPM)),
+				slog.Float64("ratio", float64(sample.Ratio)),
 			)
 			loggedFirstPublishAfterWarmup = true
 		}
@@ -229,18 +237,23 @@ func main() {
 	}
 }
 
-func rawToPPM(raw uint16) float32 {
-	voltage := (float32(raw) / float32(max16Bit)) * sysV
-	// Replace from sensor data sheet
-	const vZero float32 = 0.4
-	const scaleFactor float32 = 100
-
-	PPM := (voltage - vZero) * scaleFactor
-
-	if PPM < 0 {
+// rawToRs converts an ADC reading into the sensor resistance Rs using the
+// SEN0568 divider (VCC - Rs - AOUT - RL - GND):
+//
+//	Vout = VCC * RL / (Rs + RL)  =>  Rs = RL * (VCC - Vout) / Vout
+//
+// The GM-602B is a resistive MOS element with a nonlinear, per-part response,
+// so absolute ppm needs a per-sensor calibration against a known H2S source we
+// don't have in the workshop. Instead we publish the relative index R0/Rs (see
+// sampleForever), which the datasheet says needs no calibration.
+//
+// Returns 0 for a non-positive reading (open/disconnected pin).
+func rawToRs(raw uint16) float32 {
+	v := rawToVoltage(raw)
+	if v <= 0 {
 		return 0
 	}
-	return PPM
+	return rLoad * (sysV - v) / v
 }
 
 func sampleForever(logger *slog.Logger, debugLED machine.Pin, sensor machine.ADC, warmupStartedAt time.Time, samples chan h2sSample) {
@@ -251,6 +264,7 @@ func sampleForever(logger *slog.Logger, debugLED machine.Pin, sensor machine.ADC
 
 	nextSampleTime := time.Now().Add(sampleInterval)
 	sampleCount := 0
+	var r0 float32 // Clean-air baseline resistance, captured once warm-up completes.
 
 	for {
 		now := time.Now()
@@ -263,9 +277,26 @@ func sampleForever(logger *slog.Logger, debugLED machine.Pin, sensor machine.ADC
 		sampleCount++
 
 		warmupStatus := warmup.Status(warmupStartedAt, time.Now(), warmupDuration)
+		rs := rawToRs(raw)
+
+		// Capture the clean-air baseline R0 the moment warm-up completes; we
+		// assume the bench air is clean at that point. The relative index is
+		// undefined (0) until then.
+		if warmupStatus.Ready && r0 == 0 && rs > 0 {
+			r0 = rs
+			logger.Info("sen0568 baseline captured", slog.Float64("r0Ohms", float64(r0)))
+		}
+
+		var ratio float32
+		if r0 > 0 && rs > 0 {
+			ratio = r0 / rs
+		}
+
 		sample := h2sSample{
 			Raw:             raw,
-			PPM:             rawToPPM(raw),
+			Voltage:         rawToVoltage(raw),
+			Rs:              rs,
+			Ratio:           ratio,
 			WarmupElapsed:   warmupStatus.Elapsed,
 			WarmupRemaining: warmupStatus.Remaining,
 			Valid:           true,
@@ -279,7 +310,7 @@ func sampleForever(logger *slog.Logger, debugLED machine.Pin, sensor machine.ADC
 				slog.Int64("remainingMS", sample.WarmupRemaining.Milliseconds()),
 				slog.Int64("warmupDurationMS", warmupDuration.Milliseconds()),
 				slog.Uint64("raw", uint64(sample.Raw)),
-				slog.Float64("PPM", float64(sample.PPM)),
+				slog.Float64("rsOhms", float64(sample.Rs)),
 			)
 			publishLatestSample(samples, sample)
 			continue
@@ -287,7 +318,8 @@ func sampleForever(logger *slog.Logger, debugLED machine.Pin, sensor machine.ADC
 
 		logger.Info("sen0568 read",
 			slog.Uint64("raw", uint64(sample.Raw)),
-			slog.Float64("PPM", float64(sample.PPM)),
+			slog.Float64("rsOhms", float64(sample.Rs)),
+			slog.Float64("ratio", float64(sample.Ratio)),
 		)
 		publishLatestSample(samples, sample)
 	}
@@ -330,7 +362,7 @@ func waitForFirstReading(logger *slog.Logger, debugLED machine.Pin, sensor machi
 		logger.Info("sen0568:first-read success",
 			slog.Uint64("attempt", attempt),
 			slog.Uint64("raw", uint64(raw)),
-			slog.Float64("PPM", float64(rawToPPM(raw))),
+			slog.Float64("rsOhms", float64(rawToRs(raw))),
 		)
 		return
 	}
