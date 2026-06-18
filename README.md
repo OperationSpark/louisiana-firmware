@@ -28,17 +28,19 @@ WIFI_PASS=your_wifi_password
 MQTT_ADDR=os-mqtt-gateway.fly.dev:1883   # host:port only, no tcp:// prefix
 MQTT_USER=picopuff                       # MQTT account/user segment in the topic
 MQTT_PASS=your_mqtt_password
-MQTT_DEVICE=picopuff                     # DB device slug; defaults to firmware client ID
+MQTT_DEVICE=picopuff                     # required DB device slug; must match devices.source_device_key
 MQTT_TOPIC=                              # optional full topic override; normally blank
 ```
 
 The default publish topic is:
 
 ```text
-louisianair/dev/<MQTT_USER>/<MQTT_DEVICE-or-client-id>/telemetry
+louisianair/dev/<MQTT_USER>/<MQTT_DEVICE>/telemetry
 ```
 
-The firmware now fails fast if `MQTT_USER` is missing and no `MQTT_TOPIC` override is supplied, so it will not silently publish backend-bound readings to `tests/43`.
+The firmware now fails fast if `MQTT_USER` or `MQTT_DEVICE` is missing and no `MQTT_TOPIC`
+override is supplied, so it will not silently publish backend-bound readings under a firmware
+default like `tinygo-sen0568`.
 
 ### 2. Flash the Pico W
 

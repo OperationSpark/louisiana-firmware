@@ -93,6 +93,20 @@ func rawToVoltage(raw uint16) float32 {
 	return (float32(raw) / float32(max16Bit)) * sysV
 }
 
+// macString formats a 6-byte MAC as lowercase colon-separated hex
+// (e.g. "28:cd:c1:0a:1b:2c"), without pulling in net/fmt.
+func macString(mac [6]byte) string {
+	const hex = "0123456789abcdef"
+	buf := make([]byte, 0, 17)
+	for i, b := range mac {
+		if i > 0 {
+			buf = append(buf, ':')
+		}
+		buf = append(buf, hex[b>>4], hex[b&0x0f])
+	}
+	return string(buf)
+}
+
 func main() {
 	// Give USB serial + sensors time to come up before first prints/IO.
 	time.Sleep(startupDelay)
@@ -152,6 +166,12 @@ func main() {
 	}
 
 	go loopForeverStack(cystack)
+
+	if mac, err := cystack.HardwareAddr6(); err != nil {
+		logger.Error("could not read pico MAC", slog.Any("reason", err))
+	} else {
+		logger.Info("pico:mac", slog.String("mac", macString(mac)))
+	}
 
 	dhcpResults, err := cystack.SetupWithDHCP(cyw43439.DHCPConfig{
 		RequestedAddr: netip.AddrFrom4([4]byte{192, 168, 1, 100}),

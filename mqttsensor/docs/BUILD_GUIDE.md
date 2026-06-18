@@ -210,8 +210,10 @@ The firmware is configured at build time via environment variables:
 | `WIFI_SSID` | Yes      | WiFi network name        | `MyNetwork`          |
 | `WIFI_PASS` | Yes      | WiFi password            | `secretpass`         |
 | `MQTT_ADDR` | Yes      | MQTT broker address:port | `192.168.1.100:1883` |
-| `MQTT_USER` | No       | MQTT username            | `sensor1`            |
-| `MQTT_PASS` | No       | MQTT password            | `sensorpass`         |
+| `MQTT_USER` | Default topic | MQTT username/topic account segment | `sensor1`            |
+| `MQTT_PASS` | No            | MQTT password                       | `sensorpass`         |
+| `MQTT_DEVICE` | Default topic | Backend device slug; must match `devices.source_device_key` | `picopuff` |
+| `MQTT_TOPIC` | No | Full topic override; leave blank for backend telemetry | `` |
 
 Set these in your shell before building:
 
@@ -240,7 +242,7 @@ The sensor publishes backend-compatible telemetry that includes:
 - `measurements.temperature` converted to °C
 - `measurements.humidity` (%)
 
-Default topic: `louisianair/dev/<MQTT_USER>/<MQTT_DEVICE-or-client-id>/telemetry`.
+Default topic: `louisianair/dev/<MQTT_USER>/<MQTT_DEVICE>/telemetry`. `MQTT_DEVICE` is required for this backend-bound topic; set `MQTT_TOPIC` only when intentionally publishing elsewhere.
 
 ### Sensor Calibration Notes
 

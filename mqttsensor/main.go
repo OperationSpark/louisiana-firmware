@@ -26,11 +26,11 @@ import (
 var mqttServerAddr string
 
 // mqttDeviceSlug is the stable device identifier used in the MQTT telemetry topic.
-// Optional - defaults to the MQTT client ID when empty.
+// Required for the default LouisianAir topic unless mqttTopic is set.
 var mqttDeviceSlug string
 
 // mqttTopic is an optional full MQTT topic override.
-// Leave empty to publish to louisianair/dev/<MQTT_USER>/<MQTT_DEVICE-or-client-id>/telemetry.
+// Leave empty to publish to louisianair/dev/<MQTT_USER>/<MQTT_DEVICE>/telemetry.
 var mqttTopic string
 
 // mqttUsername is the MQTT broker username for authentication.

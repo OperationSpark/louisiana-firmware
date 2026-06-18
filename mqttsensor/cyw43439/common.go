@@ -251,3 +251,9 @@ func (s *Stack) Prand32() uint32 {
 func (s *Stack) Addr() netip.Addr {
 	return s.s.Addr()
 }
+
+// HardwareAddr6 returns the Pico W's WiFi MAC address as a 6-byte array. This
+// is a stable per-board identifier, useful for device registration/dedup.
+func (s *Stack) HardwareAddr6() ([6]byte, error) {
+	return s.dev.HardwareAddr6()
+}

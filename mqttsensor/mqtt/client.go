@@ -8,10 +8,12 @@ import (
 	"net/netip"
 	"runtime"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/operationspark/aethernet-firmware/mqttsensor/cyw43439"
 	"github.com/operationspark/aethernet-firmware/mqttsensor/lcd"
+	"github.com/operationspark/aethernet-firmware/mqttsensor/mqtt/topic"
 	"github.com/soypat/lneto/tcp"
 	mqtt "github.com/soypat/natiu-mqtt"
 )
@@ -19,8 +21,6 @@ import (
 var (
 	pubFlags, _ = mqtt.NewPublishFlags(mqtt.QoS0, false, false)
 )
-
-const topicPrefix = "louisianair/dev"
 
 type SensorReading struct {
 	Voltage     float32
@@ -37,7 +37,7 @@ type SensorReading struct {
 
 type Client struct {
 	ID                string
-	DeviceSlug        string // Stable DB device slug used in the LouisianAir telemetry topic. Defaults to ID.
+	DeviceSlug        string // Stable DB device slug used in the LouisianAir telemetry topic. Required unless Topic is set.
 	Topic             string // Optional full MQTT topic override. Defaults to louisianair/dev/<Username>/<DeviceSlug>/telemetry.
 	Timeout           time.Duration
 	TCPBufSize        int
@@ -248,22 +248,12 @@ type telemetryPayload struct {
 }
 
 func (c *Client) publishTopic() (string, error) {
-	if c.Topic != "" {
-		return c.Topic, nil
-	}
-	deviceSlug := c.deviceSlug()
-	if c.Username == "" {
-		return "", errors.New("mqtt username is required to build LouisianAir telemetry topic")
-	}
-	if deviceSlug == "" {
-		return "", errors.New("mqtt device slug is required to build LouisianAir telemetry topic")
-	}
-	return topicPrefix + "/" + c.Username + "/" + deviceSlug + "/telemetry", nil
+	return topic.Resolve(c.Topic, c.Username, c.DeviceSlug)
 }
 
 func (c *Client) deviceSlug() string {
 	if c.DeviceSlug != "" {
-		return c.DeviceSlug
+		return strings.TrimSpace(c.DeviceSlug)
 	}
 	return c.ID
 }
@@ -287,17 +277,14 @@ func canonicalPayload(deviceSlug string, reading SensorReading) ([]byte, error) 
 		measurements["eco2"] = float64(reading.ECO2)
 		measurements["tvoc"] = float64(reading.TVOC)
 	}
-	// Analog gas sensors (e.g. SEN0568 H2S on ADC0) report a voltage; a zero
-	// voltage means no analog sensor is attached, so only emit these for
-	// ADC-equipped devices. Raw is the 16-bit ADC value behind the voltage.
-	if reading.Voltage != 0 {
-		measurements["voltage"] = float64(reading.Voltage)
-		measurements["h2s_raw"] = float64(reading.RawUInt16)
-		// Relative H2S index (R0/Rs); only present once the warm-up baseline is
-		// captured, so a zero means "not yet available", not "clean air".
-		if reading.Ratio != 0 {
-			measurements["h2s_index"] = float64(reading.Ratio)
-		}
+	// Analog H2S sensor (SEN0568 on ADC0) reports a relative index (R0/Rs).
+	// We only emit h2s_index; raw voltage/ADC are intentionally dropped because
+	// the sensor's 50 ppm ceiling makes absolute readings meaningless for
+	// ambient air, and the backend recognizes only h2s_index anyway.
+	// Index is zero until the warm-up baseline is captured ("not yet
+	// available", not "clean air"), so a zero means skip this reading.
+	if reading.Ratio != 0 {
+		measurements["h2s_index"] = float64(reading.Ratio)
 	}
 	payload := telemetryPayload{
 		SourceReadingKey: deviceSlug + ":" + strconv.FormatInt(recordedAt.UnixNano(), 10) + ":" + strconv.FormatInt(reading.SinceBootNS.Nanoseconds(), 10),

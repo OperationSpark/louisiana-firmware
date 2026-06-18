@@ -28,13 +28,13 @@ Configure WiFi and MQTT via environment variables injected by TinyGo linker flag
 - `MQTT_ADDR` - MQTT broker address as `host:port`, for example `os-mqtt-gateway.fly.dev:1883`
 - `MQTT_USER` - MQTT username; required unless `MQTT_TOPIC` is set
 - `MQTT_PASS` - MQTT password
-- `MQTT_DEVICE` - backend device slug; optional, defaults to firmware client ID
+- `MQTT_DEVICE` - backend device slug; required unless `MQTT_TOPIC` is set; must match `devices.source_device_key`
 - `MQTT_TOPIC` - optional full topic override; normally leave blank
 
 Default publish topic:
 
 ```text
-louisianair/dev/<MQTT_USER>/<MQTT_DEVICE-or-client-id>/telemetry
+louisianair/dev/<MQTT_USER>/<MQTT_DEVICE>/telemetry
 ```
 
 ## Flashing
