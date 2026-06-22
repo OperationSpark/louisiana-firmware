@@ -14,7 +14,7 @@ TinyGo firmware for the Raspberry Pi Pico W. Reads temperature, humidity, and se
 
 ## Setup
 
-### 1. Copy and fill in your environment
+### TODO 1: Copy and fill in your environment
 
 ```bash
 cp .env.example .env
@@ -28,7 +28,7 @@ WIFI_PASS=your_wifi_password
 MQTT_ADDR=os-mqtt-gateway.fly.dev:1883   # host:port only, no tcp:// prefix
 MQTT_USER=picopuff                       # MQTT account/user segment in the topic
 MQTT_PASS=your_mqtt_password
-MQTT_DEVICE=picopuff                     # required DB device slug; must match devices.source_device_key
+MQTT_DEVICE=your_pico_mac_address        # will get from the Pico in TODO 2; must match devices.source_device_key
 MQTT_TOPIC=                              # optional full topic override; normally blank
 ```
 
@@ -42,17 +42,23 @@ The firmware now fails fast if `MQTT_USER` or `MQTT_DEVICE` is missing and no `M
 override is supplied, so it will not silently publish backend-bound readings under a firmware
 default like `tinygo-sen0568`.
 
-### 2. Flash the Pico W
+### TODO 2: Get the Pico's MAC address
 
-Hold the **BOOTSEL** button, plug in the Pico, then release. Run:
+Hold the **BOOTSEL** button, plug in the Pico, then release. Flash the MAC probe and watch the serial output:
 
 ```bash
-source .env && make flash/sgp30mqtt \
-  WIFI_SSID="$WIFI_SSID" WIFI_PASS="$WIFI_PASS" \
-  MQTT_ADDR="$MQTT_ADDR" \
-  MQTT_USER="$MQTT_USER" MQTT_PASS="$MQTT_PASS" \
-  MQTT_DEVICE="$MQTT_DEVICE" MQTT_TOPIC="$MQTT_TOPIC"
+make flash/macprobe
 ```
+
+It prints the Pico W's MAC address over serial. Set `MQTT_DEVICE` in `.env` to the **lowercased** MAC:
+
+```bash
+MQTT_DEVICE=28cdc1xxxxxx   # lowercased MAC from macprobe; must match devices.source_device_key
+```
+
+### TODO 3: Flash the Pico W
+
+Hold the **BOOTSEL** button, plug in the Pico, then release. Run:
 
 If you are flashing the LCD/ADC firmware, use `flash/mqttsensor` instead with the same variables (including `MQTT_DEVICE`):
 
@@ -64,7 +70,7 @@ source .env && make flash/mqttsensor \
   MQTT_DEVICE="$MQTT_DEVICE" MQTT_TOPIC="$MQTT_TOPIC"
 ```
 
-### 3. Verify data is flowing
+### TODO 4: Verify data is flowing
 
 Subscribe to the exact backend topic:
 
