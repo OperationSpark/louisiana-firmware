@@ -4,6 +4,30 @@ help:
 	@echo 'Usage:'
 	@sed -n 's/^##//p' ${MAKEFILE_LIST} | column -t -s ':' |  sed -e 's/^/ /'
 
+## sensor-test: flash the XIAO ESP32S3 sensor bring-up firmware, then attach the monitor.
+## The ESP32-S3 re-enumerates its native USB on reset, so -monitor races the port. Reattach instead.
+.PHONY: sensor-test
+sensor-test:
+	tinygo flash -target=xiao-esp32s3 -size=short ./cmd/sensor-test
+	@sleep 3
+	$(MAKE) monitor
+
+## monitor: attach to the XIAO ESP32S3 serial monitor.
+.PHONY: monitor
+monitor:
+	tinygo monitor -target=xiao-esp32s3
+
+## build-sensor-test: compile the sensor bring-up firmware without flashing hardware.
+.PHONY: build-sensor-test
+build-sensor-test:
+	@mkdir -p .build
+	tinygo build -target=xiao-esp32s3 -size=short -o .build/sensor-test.elf ./cmd/sensor-test
+
+## test: run host-side tests for hardware-independent logic.
+.PHONY: test
+test:
+	go test ./internal/sensors
+
 ## flash/mqttsensor: flash the MQTT client app to the Pico W. Pass env vars - MQTT_ADDR, WIFI_SSID, WIFI_PASS, [MQTT_USER, MQTT_PASS, MQTT_DEVICE, MQTT_TOPIC]
 .PHONY: flash/mqttsensor
 flash/mqttsensor:
