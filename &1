@@ -1,0 +1,1 @@
+internal/board/xiao_esp32s3.go:4:8: package machine is not in std (/opt/homebrew/Cellar/go/1.26.2/libexec/src/machine)

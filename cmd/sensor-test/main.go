@@ -34,6 +34,18 @@ func main() {
 	time.Sleep(150 * time.Millisecond)
 	fmt.Println("[I2C] configuring SDA=D4/GPIO5 SCL=D5/GPIO6 frequency=100000Hz")
 	time.Sleep(150 * time.Millisecond)
+
+	// The pullups live on the breakouts, so this doubles as an attachment test:
+	// no pullup means no powered sensor on the bus, whatever the scan reports.
+	sda, scl := board.PullupsPresent()
+	fmt.Printf("[I2C] pullups SDA=%s SCL=%s\n", present(sda), present(scl))
+	time.Sleep(150 * time.Millisecond)
+	if !sda || !scl {
+		fmt.Println("[I2C] WARN: no pullup on the bus: no powered breakout is reaching D4/D5")
+		time.Sleep(150 * time.Millisecond)
+		fmt.Println("[I2C] check the green power LED on each breakout and that both Grove plugs sit in I2C sockets")
+		time.Sleep(150 * time.Millisecond)
+	}
 	if err := board.ConfigureI2C(); err != nil {
 		stop("[I2C] ERROR: configure failed: ", err)
 	}
@@ -46,11 +58,19 @@ func main() {
 	deviceCount := 0
 	probe := []byte{0}
 	for address := uint16(0x08); address <= 0x77; address++ {
-		if err := board.I2C.Tx(address, probe, nil); err == nil {
-			found[address] = true
-			deviceCount++
-			fmt.Printf("I2C device found: 0x%02X\n", address)
+		if err := board.I2C.Tx(address, probe, nil); err != nil {
+			// A NACK leaves the ESP32-S3 I2C master FSM stalled: TinyGo's driver
+			// returns the error without resetting it, so the next Tx completes
+			// instantly on stale state and reports a device that is not there.
+			// Reconfiguring clears the FSM, which is why every probe gets a fresh bus.
+			if cfgErr := board.ConfigureI2C(); cfgErr != nil {
+				stop("[I2C] ERROR: reconfigure after NACK failed: ", cfgErr)
+			}
+			continue
 		}
+		found[address] = true
+		deviceCount++
+		fmt.Printf("I2C device found: 0x%02X\n", address)
 	}
 
 	fmt.Println("[I2C] scan complete")
@@ -96,6 +116,12 @@ func main() {
 	time.Sleep(150 * time.Millisecond)
 
 	sgp := sensors.NewSGP41(board.I2C)
+	if err := sgp.SoftReset(); err != nil {
+		// A general call reset is broadcast, so a NACK here means the bus, not the part.
+		recoverBus()
+		fmt.Printf("[SGP41] WARN: soft reset failed: %v\n", err)
+		time.Sleep(150 * time.Millisecond)
+	}
 	serial, err := sgp.SerialNumber()
 	if err != nil {
 		stop("[SGP41] ERROR: serial number read failed: ", err)
@@ -109,15 +135,16 @@ func main() {
 	fmt.Println("[SGP41] conditioning for 10 seconds")
 	conditioningStarted := time.Now()
 	for second := 1; second <= 10; second++ {
-		if bme != nil {
-			if current, readErr := bme.Read(); readErr != nil {
-				fmt.Printf("[BME280] ERROR: conditioning compensation read failed; using last reading: %v\n", readErr)
-			} else {
-				reading = current
+		if _, err := sgp.ExecuteConditioning(); err != nil {
+			// One NACK is recoverable; a second means the part is not accepting the
+			// command at all. Raw ticks still read out, they just drift for the first
+			// minute or so, which beats halting a workshop bench on a warmup step.
+			recoverBus()
+			time.Sleep(50 * time.Millisecond)
+			if _, retryErr := sgp.ExecuteConditioning(); retryErr != nil {
+				fmt.Printf("[SGP41] WARN: conditioning refused, measuring uncondit'ed: %v\n", retryErr)
+				break
 			}
-		}
-		if _, err := sgp.ExecuteConditioning(reading.TemperatureC, reading.HumidityPct); err != nil {
-			stop("[SGP41] ERROR: conditioning failed: ", err)
 		}
 		fmt.Printf("[SGP41] conditioning %d/10\n", second)
 		time.Sleep(time.Until(conditioningStarted.Add(time.Duration(second) * time.Second)))
@@ -131,6 +158,7 @@ func main() {
 		if bme != nil {
 			current, err := bme.Read()
 			if err != nil {
+				recoverBus()
 				fmt.Printf("[BME280] ERROR: reading failed; retrying next cycle: %v\n", err)
 				sleepUntil(cycleStarted.Add(readingInterval))
 				continue
@@ -166,6 +194,7 @@ func main() {
 			fmt.Printf("pressure_hpa: %s\n", pressureField)
 		}
 		if gasErr != nil {
+			recoverBus()
 			fmt.Printf("[SGP41] ERROR: measurement failed; retrying next cycle: %v\n", gasErr)
 		}
 		fmt.Printf("sraw_voc: %s\n", vocField)
@@ -175,6 +204,22 @@ func main() {
 
 		sleepUntil(cycleStarted.Add(readingInterval))
 	}
+}
+
+// recoverBus clears the stalled I2C master left behind by a NACK. Without it the
+// next transaction returns instantly on stale state, so a failed read is followed
+// by a "successful" one carrying whatever was in the FIFO.
+func recoverBus() {
+	if err := board.ConfigureI2C(); err != nil {
+		fmt.Printf("[I2C] ERROR: bus recovery failed: %v\n", err)
+	}
+}
+
+func present(yes bool) string {
+	if yes {
+		return "yes"
+	}
+	return "NO"
 }
 
 func sleepUntil(deadline time.Time) {

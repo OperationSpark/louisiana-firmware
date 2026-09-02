@@ -16,6 +16,15 @@ const (
 	sgp41SelfTestCommand     = 0x280e
 	sgp41SerialCommand       = 0x3682
 	sgp41SelfTestPassed      = 0xd400
+
+	// General call address and reset byte, per Sensirion's soft reset sequence.
+	sgp41GeneralCallAddress = 0x00
+	sgp41GeneralCallReset   = 0x06
+
+	// Conditioning takes the datasheet's fixed defaults, not live compensation:
+	// 50 %RH and 25 C, each with its Sensirion CRC. The sensor NACKs other values.
+	sgp41ConditioningRHTicks   = 0x8000
+	sgp41ConditioningTempTicks = 0x6666
 )
 
 type SGP41 struct {
@@ -24,6 +33,17 @@ type SGP41 struct {
 
 func NewSGP41(bus drivers.I2C) *SGP41 {
 	return &SGP41{bus: bus}
+}
+
+// SoftReset clears a half-parsed command. Sensirion commands are two bytes, so a
+// bus scanner's one-byte probe leaves the sensor holding half a command and every
+// following read NACKs until it is reset.
+func (s *SGP41) SoftReset() error {
+	if err := s.bus.Tx(sgp41GeneralCallAddress, []byte{sgp41GeneralCallReset}, nil); err != nil {
+		return err
+	}
+	time.Sleep(10 * time.Millisecond)
+	return nil
 }
 
 func (s *SGP41) SerialNumber() (uint64, error) {
@@ -68,8 +88,10 @@ func (s *SGP41) SelfTest() error {
 	return nil
 }
 
-func (s *SGP41) ExecuteConditioning(temperatureC, humidityPct float32) (uint16, error) {
-	if err := s.writeCompensatedCommand(sgp41ConditioningCommand, temperatureC, humidityPct); err != nil {
+// ExecuteConditioning runs the heater conditioning phase. It takes no compensation
+// arguments on purpose: the command is specified with fixed default parameters.
+func (s *SGP41) ExecuteConditioning() (uint16, error) {
+	if err := s.writeTicksCommand(sgp41ConditioningCommand, sgp41ConditioningRHTicks, sgp41ConditioningTempTicks); err != nil {
 		return 0, err
 	}
 	time.Sleep(50 * time.Millisecond)
@@ -107,8 +129,10 @@ func (s *SGP41) writeCommand(command uint16) error {
 }
 
 func (s *SGP41) writeCompensatedCommand(command uint16, temperatureC, humidityPct float32) error {
-	humidity := RelativeHumidityTicks(humidityPct)
-	temperature := TemperatureTicks(temperatureC)
+	return s.writeTicksCommand(command, RelativeHumidityTicks(humidityPct), TemperatureTicks(temperatureC))
+}
+
+func (s *SGP41) writeTicksCommand(command, humidity, temperature uint16) error {
 	data := [8]byte{
 		byte(command >> 8), byte(command),
 		byte(humidity >> 8), byte(humidity), 0,
