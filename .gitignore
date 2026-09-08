@@ -7,7 +7,7 @@
 *.dll
 *.so
 *.dylib
-
+*.pio
 # Local build output
 .build/
 
