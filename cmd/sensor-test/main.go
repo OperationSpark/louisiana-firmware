@@ -32,6 +32,8 @@ func main() {
 	time.Sleep(150 * time.Millisecond)
 	fmt.Println("[BOOT] TinyGo environmental node")
 	time.Sleep(150 * time.Millisecond)
+	fmt.Printf("[BOOT] mac=%s node=%s\n", board.MACString(board.MAC()), nodeID)
+	time.Sleep(150 * time.Millisecond)
 	fmt.Println("[I2C] configuring SDA=D4/GPIO5 SCL=D5/GPIO6 frequency=100000Hz")
 	time.Sleep(150 * time.Millisecond)
 

@@ -175,6 +175,9 @@ Steps D–K are deliberately not implemented until A–C pass on physical hardwa
 
 ## Troubleshooting
 
+Bench findings from I²C bring-up — phantom scan results, pull-up testing, and the
+SGP41 command set — are recorded in [docs/i2c-bringup.md](docs/i2c-bringup.md).
+
 ### No serial output
 
 - Confirm the USB cable carries data, not power only.

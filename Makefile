@@ -84,3 +84,15 @@ flash/sgp30mqtt:
 		-X 'main.mqttUsername=${MQTT_USER}' \
 		-X 'main.mqttPassword=${MQTT_PASS}'"; \
 	tinygo flash -target=pico-w -stack-size=16kb -monitor -ldflags="$$LDFLAGS" ./sgp30mqtt/...
+
+## build/xiao-mqtt: build the XIAO ESP32-S3 WiFi+MQTT firmware (C++/Arduino, PlatformIO). Export WIFI_SSID, WIFI_PASS, MQTT_ADDR, MQTT_USER, MQTT_PASS, [MQTT_DEVICE, MQTT_TOPIC]
+.PHONY: build/xiao-mqtt
+build/xiao-mqtt:
+	pio run -d esp32s3-mqtt
+
+## flash/xiao-mqtt: flash the XIAO ESP32-S3 WiFi+MQTT firmware, then attach the monitor. Same env vars as build/xiao-mqtt.
+.PHONY: flash/xiao-mqtt
+flash/xiao-mqtt:
+	pio run -d esp32s3-mqtt -t upload
+	@sleep 3
+	pio device monitor -d esp32s3-mqtt
