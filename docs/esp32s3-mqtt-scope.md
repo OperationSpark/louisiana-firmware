@@ -58,6 +58,14 @@ Option 1 for anything that has to ship this term. Option 3 if the only near
 goal is showing the broker receiving XIAO data at a workshop. Option 2 only if
 the XIAO must be standalone, and budget the C rewrite of the SGP41 driver.
 
+## Gas index
+
+The firmware samples the SGP41 at 1 Hz and publishes every tenth sample, because
+Sensirion's Gas Index Algorithm is a recursive filter tied to a fixed cadence and
+its NOx variant is hard-wired to 1 s. It publishes `sensirion_voc_index` and
+`sensirion_nox_index` alongside the raw ticks. For what the index does and does
+not mean when shown to residents, see `aethernet/docs/sensirion-index-display.md`.
+
 ## Groundwork already done
 
 `board.MAC()` reads the factory MAC from eFuse BLK1 and `cmd/sensor-test`

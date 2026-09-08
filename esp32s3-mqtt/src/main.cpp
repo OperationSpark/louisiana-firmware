@@ -10,7 +10,10 @@
 #include <Wire.h>
 #include <PubSubClient.h>
 #include <SensirionI2CSgp41.h>
+#include <VOCGasIndexAlgorithm.h>
+#include <NOxGasIndexAlgorithm.h>
 #include <Adafruit_BME280.h>
+#include <Preferences.h>
 #include <time.h>
 
 // XIAO D4/D5, matching internal/board/xiao_esp32s3.go.
@@ -19,7 +22,12 @@ static const int kSclPin = 6;
 static const uint32_t kI2cFrequencyHz = 100000;
 
 static const char *kTopicPrefix = "louisianair/dev";
-static const uint32_t kPublishIntervalMs = 10000;
+// Sensirion's Gas Index Algorithm is a recursive filter: it assumes a fixed
+// cadence and its NOx variant is hard-wired to 1 s (NOxGasIndexAlgorithm has no
+// sampling-interval constructor, unlike the VOC one). So sample every second and
+// publish every tenth sample rather than sampling every ten seconds.
+static const uint32_t kSampleIntervalMs = 1000;
+static const uint32_t kSamplesPerPublish = 10;
 
 // Sensirion's own defaults, used to compensate the SGP41 until the BME280 has
 // produced a reading (and for the whole run if no BME280 is attached).
@@ -30,9 +38,21 @@ static const float kDefaultHumidityPct = 50.0f;
 // measurement; readings taken earlier are meaningless, not merely noisy.
 static const int kConditioningSeconds = 10;
 
+// The algorithm returns 0 for its first GasIndexAlgorithm_INITIAL_BLACKOUT (45)
+// seconds, and its VOC state is only meaningful after 3 hours of continuous
+// operation. Sensirion also documents that restored state must not be used after
+// an interruption longer than 10 minutes.
+static const uint32_t kStateMinRuntimeMs = 3UL * 3600UL * 1000UL;
+static const uint32_t kStateSaveIntervalMs = 3600UL * 1000UL;
+static const uint32_t kStateMaxAgeSeconds = 600;
+
 static SensirionI2CSgp41 sgp41;
+// Default constructors mean the 1 s sampling interval both algorithms expect.
+static VOCGasIndexAlgorithm vocAlgorithm;
+static NOxGasIndexAlgorithm noxAlgorithm;
 static Adafruit_BME280 bme;
 static bool bmePresent = false;
+static Preferences prefs;
 
 static WiFiClient wifiClient;
 static PubSubClient mqtt(wifiClient);
@@ -84,14 +104,15 @@ static int buildPayload(char *out, size_t len, const char *slug,
                         uint64_t recordedAtUnixNs, uint64_t sinceBootNs,
                         bool haveEnv, float temperatureC, float humidityPct,
                         float pressureHPa, bool haveGas, uint16_t srawVoc,
-                        uint16_t srawNox) {
+                        uint16_t srawNox, bool haveIndex, int32_t vocIndex,
+                        int32_t noxIndex) {
   time_t seconds = (time_t)(recordedAtUnixNs / 1000000000ULL);
   struct tm utc;
   gmtime_r(&seconds, &utc);
   char recordedAt[32];
   strftime(recordedAt, sizeof(recordedAt), "%Y-%m-%dT%H:%M:%SZ", &utc);
 
-  char measurements[192];
+  char measurements[256];
   int m = 0;
   measurements[0] = '\0';
   if (haveEnv) {
@@ -103,6 +124,14 @@ static int buildPayload(char *out, size_t len, const char *slug,
     m += snprintf(measurements + m, sizeof(measurements) - m,
                   "%s\"sraw_voc\":%u,\"sraw_nox\":%u", m > 0 ? "," : "",
                   srawVoc, srawNox);
+  }
+  // The raw ticks ride along with the indices on purpose: they are what the
+  // algorithm consumes, so keeping them lets an index be recomputed offline if
+  // the tuning parameters ever change.
+  if (haveIndex) {
+    m += snprintf(measurements + m, sizeof(measurements) - m,
+                  "%s\"sensirion_voc_index\":%ld,\"sensirion_nox_index\":%ld",
+                  m > 0 ? "," : "", (long)vocIndex, (long)noxIndex);
   }
 
   return snprintf(out, len,
@@ -133,12 +162,14 @@ static void selfCheck() {
 
   char payload[384];
   buildPayload(payload, sizeof(payload), "node-a", 1757332800000000000ULL,
-               1500000000ULL, true, 21.5f, 44.25f, 1013.0f, true, 30000, 17000);
+               1500000000ULL, true, 21.5f, 44.25f, 1013.0f, true, 30000, 17000,
+               true, 103, 1);
   const char *want =
       "{\"source_reading_key\":\"node-a:1757332800000000000:1500000000\","
       "\"recorded_at\":\"2025-09-08T12:00:00Z\",\"measurements\":{"
       "\"temperature\":21.50,\"humidity\":44.25,\"pressure\":1013.00,"
-      "\"sraw_voc\":30000,\"sraw_nox\":17000}}";
+      "\"sraw_voc\":30000,\"sraw_nox\":17000,"
+      "\"sensirion_voc_index\":103,\"sensirion_nox_index\":1}}";
   if (strcmp(payload, want) != 0) {
     Serial.println("[CHECK] FAIL: payload mismatch");
     Serial.print("[CHECK] got:  ");
@@ -150,12 +181,60 @@ static void selfCheck() {
 
   // Gas-only: the comma between groups must not appear when the first is empty.
   buildPayload(payload, sizeof(payload), "n", 1757332800000000000ULL, 1ULL,
-               false, 0, 0, 0, true, 1, 2);
+               false, 0, 0, 0, true, 1, 2, false, 0, 0);
   if (strstr(payload, "{\"sraw_voc\":1") == nullptr) {
     Serial.println("[CHECK] FAIL: gas-only payload has a stray separator");
     return;
   }
+  // A blacked-out index must be absent, not published as a literal 0: the
+  // backend would store that as a real reading of "cleanest possible air".
+  if (strstr(payload, "sensirion_voc_index") != nullptr) {
+    Serial.println("[CHECK] FAIL: index emitted while unavailable");
+    return;
+  }
   Serial.println("[CHECK] ok");
+}
+
+// The VOC algorithm spends its first hours learning a baseline, so a reboot
+// otherwise throws away everything it knows about this location's normal air.
+// Only the VOC algorithm exposes state: NOxGasIndexAlgorithm declares no
+// get_states/set_states, so NOx always relearns from scratch after a restart.
+//
+// Restoring is only valid for a short interruption, so the save timestamp is
+// stored alongside the state and checked against the (NTP-synced) clock.
+static void restoreVocState() {
+  prefs.begin("sgp41", true);
+  uint32_t savedAt = prefs.getUInt("saved_at", 0);
+  float state0 = prefs.getFloat("voc0", 0.0f);
+  float state1 = prefs.getFloat("voc1", 0.0f);
+  prefs.end();
+
+  if (savedAt == 0) {
+    Serial.println("[SGP41] no saved VOC state; starting initial learning");
+    return;
+  }
+  uint32_t now = (uint32_t)time(nullptr);
+  if (now < savedAt || now - savedAt > kStateMaxAgeSeconds) {
+    Serial.printf("[SGP41] saved VOC state is %lus old (limit %lus); starting "
+                  "initial learning\n",
+                  (unsigned long)(now - savedAt),
+                  (unsigned long)kStateMaxAgeSeconds);
+    return;
+  }
+  vocAlgorithm.set_states(state0, state1);
+  Serial.printf("[SGP41] restored VOC state saved %lus ago\n",
+                (unsigned long)(now - savedAt));
+}
+
+static void saveVocState() {
+  float state0 = 0.0f, state1 = 0.0f;
+  vocAlgorithm.get_states(state0, state1);
+  prefs.begin("sgp41", false);
+  prefs.putFloat("voc0", state0);
+  prefs.putFloat("voc1", state1);
+  prefs.putUInt("saved_at", (uint32_t)time(nullptr));
+  prefs.end();
+  Serial.println("[SGP41] saved VOC state");
 }
 
 static void connectWifi() {
@@ -280,9 +359,32 @@ void setup() {
     delay(1000);
   }
   Serial.println("[SGP41] ready");
+
+  // After NTP, so the age check has a real clock to compare against.
+  restoreVocState();
+  Serial.println("[APP] sampling at 1 Hz, publishing every 10th sample");
 }
 
 void loop() {
+  // A steady cadence is not cosmetic here: the Gas Index Algorithm is a
+  // recursive filter whose time constants assume one sample per second.
+  static uint32_t nextSampleMs = 0;
+  static uint32_t sampleCount = 0;
+  static uint32_t lastStateSaveMs = 0;
+
+  if ((int32_t)(millis() - nextSampleMs) < 0) {
+    mqtt.loop();
+    delay(5);
+    return;
+  }
+  nextSampleMs += kSampleIntervalMs;
+  // A blocking reconnect or a stalled publish can push the deadline into the
+  // past; resync rather than firing a burst of catch-up samples the algorithm
+  // would read as a minute of real air.
+  if ((int32_t)(millis() - nextSampleMs) > (int32_t)kSampleIntervalMs) {
+    nextSampleMs = millis() + kSampleIntervalMs;
+  }
+
   if (WiFi.status() != WL_CONNECTED) {
     connectWifi();
   }
@@ -309,8 +411,31 @@ void loop() {
   uint16_t srawVoc = 0, srawNox = 0;
   bool haveGas =
       sgp41.measureRawSignals(rhTicks, tempTicks, srawVoc, srawNox) == 0;
-  if (!haveGas) {
-    Serial.println("[SGP41] ERROR: measurement failed; retrying next cycle");
+
+  // process() returns 0 through the algorithm's 45-second initial blackout, and
+  // the NOx index stays untrustworthy far longer than that (its mean and
+  // variance initialize over ~4.75 h and ~5.70 h). Zero is a sentinel, not a
+  // measurement, so it is omitted rather than published.
+  int32_t vocIndex = 0, noxIndex = 0;
+  if (haveGas) {
+    vocIndex = vocAlgorithm.process((int32_t)srawVoc);
+    noxIndex = noxAlgorithm.process((int32_t)srawNox);
+  } else {
+    Serial.println("[SGP41] ERROR: measurement failed; retrying next second");
+  }
+  bool haveIndex = haveGas && vocIndex > 0 && noxIndex > 0;
+
+  // Saved state is only meaningful once the algorithm has run long enough for
+  // its baseline to mean something.
+  uint32_t uptimeMs = millis();
+  if (uptimeMs >= kStateMinRuntimeMs &&
+      uptimeMs - lastStateSaveMs >= kStateSaveIntervalMs) {
+    saveVocState();
+    lastStateSaveMs = uptimeMs;
+  }
+
+  if (++sampleCount % kSamplesPerPublish != 0) {
+    return;
   }
 
   struct timespec ts;
@@ -319,11 +444,11 @@ void loop() {
       (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
   uint64_t sinceBootNs = (uint64_t)esp_timer_get_time() * 1000ULL;
 
-  char payload[384];
+  char payload[448];
   int written = buildPayload(payload, sizeof(payload), deviceSlug,
                              recordedAtUnixNs, sinceBootNs, haveEnv,
                              temperatureC, humidityPct, pressureHPa, haveGas,
-                             srawVoc, srawNox);
+                             srawVoc, srawNox, haveIndex, vocIndex, noxIndex);
   if (written <= 0 || written >= (int)sizeof(payload)) {
     Serial.println("[MQTT] ERROR: payload did not fit; skipping publish");
   } else if (mqtt.publish(topic, payload)) {
@@ -331,6 +456,4 @@ void loop() {
   } else {
     Serial.println("[MQTT] ERROR: publish failed");
   }
-
-  delay(kPublishIntervalMs);
 }
