@@ -85,6 +85,36 @@ flash/sgp30mqtt:
 		-X 'main.mqttPassword=${MQTT_PASS}'"; \
 	tinygo flash -target=pico-w -stack-size=16kb -monitor -ldflags="$$LDFLAGS" ./sgp30mqtt/...
 
+## build/so2mqtt: build the Alphasense SO2-A4 AFE MQTT app. Pass env vars - MQTT_ADDR, WIFI_SSID, WIFI_PASS, [MQTT_USER, MQTT_PASS, MQTT_DEVICE, MQTT_TOPIC, SO2_WEE_MV, SO2_AEE_MV, SO2_SENS_MV_PPB]
+.PHONY: build/so2mqtt
+build/so2mqtt:
+	@LDFLAGS="-X 'github.com/operationspark/aethernet-firmware/mqttsensor/cyw43439.ssid=${WIFI_SSID}' \
+		-X 'github.com/operationspark/aethernet-firmware/mqttsensor/cyw43439.pass=${WIFI_PASS}' \
+		-X 'main.mqttServerAddr=${MQTT_ADDR}' \
+		-X 'main.mqttDeviceSlug=${MQTT_DEVICE}' \
+		-X 'main.mqttTopic=${MQTT_TOPIC}' \
+		-X 'main.mqttUsername=${MQTT_USER}' \
+		-X 'main.mqttPassword=${MQTT_PASS}' \
+		-X 'main.so2WEe=${SO2_WEE_MV}' \
+		-X 'main.so2AEe=${SO2_AEE_MV}' \
+		-X 'main.so2Sens=${SO2_SENS_MV_PPB}'"; \
+	tinygo build -target=pico-w -stack-size=16kb -ldflags="$$LDFLAGS" ./so2mqtt/...
+
+## flash/so2mqtt: flash the Alphasense SO2-A4 AFE MQTT app. Pass env vars - MQTT_ADDR, WIFI_SSID, WIFI_PASS, [MQTT_USER, MQTT_PASS, MQTT_DEVICE, MQTT_TOPIC, SO2_WEE_MV, SO2_AEE_MV, SO2_SENS_MV_PPB]
+.PHONY: flash/so2mqtt
+flash/so2mqtt:
+	@LDFLAGS="-X 'github.com/operationspark/aethernet-firmware/mqttsensor/cyw43439.ssid=${WIFI_SSID}' \
+		-X 'github.com/operationspark/aethernet-firmware/mqttsensor/cyw43439.pass=${WIFI_PASS}' \
+		-X 'main.mqttServerAddr=${MQTT_ADDR}' \
+		-X 'main.mqttDeviceSlug=${MQTT_DEVICE}' \
+		-X 'main.mqttTopic=${MQTT_TOPIC}' \
+		-X 'main.mqttUsername=${MQTT_USER}' \
+		-X 'main.mqttPassword=${MQTT_PASS}' \
+		-X 'main.so2WEe=${SO2_WEE_MV}' \
+		-X 'main.so2AEe=${SO2_AEE_MV}' \
+		-X 'main.so2Sens=${SO2_SENS_MV_PPB}'"; \
+	tinygo flash -target=pico-w -stack-size=16kb -monitor -ldflags="$$LDFLAGS" ./so2mqtt/...
+
 ## build/xiao-mqtt: build the XIAO ESP32-S3 WiFi+MQTT firmware (C++/Arduino, PlatformIO). Export WIFI_SSID, WIFI_PASS, MQTT_ADDR, MQTT_USER, MQTT_PASS, [MQTT_DEVICE, MQTT_TOPIC]
 .PHONY: build/xiao-mqtt
 build/xiao-mqtt:
