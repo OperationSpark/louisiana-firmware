@@ -133,9 +133,70 @@ internal/board/xiao_esp32s3.go   XIAO pins and bus configuration
 internal/sensors/bme280.go       BME280 address selection and unit conversion
 internal/sensors/sgp41.go        Minimal SGP41 protocol
 internal/sensors/sgp41_test.go   CRC, corruption, and compensation tests
+internal/sensors/alphasense.go   Alphasense A4 WE/AE → ppb (Algorithm 1)
+cmd/afeprobe/main.go             Pico W ADS1115/AFE bring-up probe
+so2mqtt/main.go                  Pico W SO₂ AFE → MQTT firmware
 ```
 
 Older Raspberry Pi Pico W experiments remain in `mqttsensor/`, `sgp30mqtt/`, `i2cscan/`, and `pinprobe/`; they are not used by the XIAO sensor test.
+
+## Pico W + Alphasense AFE (SO₂)
+
+Hardware chain, per the [LouisianAir connection diagram](https://asp2131.github.io/louisianair/connection-diagram.html):
+
+```text
+Pico W (Maker Pi Pico, Grove 5: GP8 SDA / GP9 SCL / 3.3 V)
+  → SmartCitizen 8-ch ASB (J2)       ADS1115 at 0x48 and 0x49
+  → 2×5 ribbon (J5)                  Alphasense 2-way AFE
+  → SN1: SO2-A4, serial 134160063    SN2: empty (needs an H2S-A4)
+```
+
+### Channel map (measured 2026-11-05)
+
+| ADS1115 | Channel | Signal |
+|---|---|---|
+| 0x48 | A0 | SN1 WE (SO₂), ~546 mV at zero |
+| 0x48 | A1 | SN1 AE (SO₂), ~574 mV at zero |
+| 0x48 | A2 / A3 | SN2 WE / AE (empty slot, ~326 / ~310 mV) |
+| 0x49 | A0–A3 | Not sensor signals (rails / 2.5 V reference) |
+
+Readings are single-shot, PGA ±4.096 V, 128 SPS. Noise is about ±2 mV per sample; the firmware averages 16 samples per channel.
+
+### Bench findings
+
+- **Ribbon orientation matters.** When the J5 ribbon is reversed, only 0x49 A0/A1 carry signal (±20 mV noise) and 0x48 reads ~3 mV. Correct orientation gives the map above.
+- **The AFE needs 4-pin A4 sensors.** The 3-pin `H2S AE` (serial 29640601) is a 3-electrode part. In SN2 it pins WE2/AE2 at 41.6 / 1.0 mV. Do not use it on this AFE.
+- **Don't hold BOOTSEL to probe.** It boots the Pico into the `RPI-RP2` drive, so the firmware doesn't run. Plug in normally; `tinygo flash` resets into the bootloader on its own.
+- **Give sensors time to settle.** After a reseat or power loss, A4 sensors can take minutes to hours to stabilise.
+
+### Firmware
+
+| Path | Purpose |
+|---|---|
+| `cmd/afeprobe/main.go` | Scans I²C on GP8/GP9 and prints all 8 ADS1115 channels every 2 s |
+| `so2mqtt/main.go` | Averages SO₂ WE/AE and publishes them over WiFi/MQTT every 10 s |
+| `internal/sensors/alphasense.go` | Alphasense Algorithm 1: `ppb = ((WE − WEe) − nT·(AE − AEe)) / sensitivity` |
+
+```bash
+tinygo flash -target=pico-w ./cmd/afeprobe     # bring-up probe
+make flash/so2mqtt                              # with .env values exported
+```
+
+`so2mqtt` publishes `so2_we_mv` and `so2_ae_mv` in the canonical telemetry `measurements` map. It adds `so2_ppb` only when the certificate values are passed in at flash time. Set them in `.env` next to the WiFi/MQTT values:
+
+```bash
+SO2_WEE_MV=          # WE electronic zero (mV)
+SO2_AEE_MV=          # AE electronic zero (mV)
+SO2_SENS_MV_PPB=     # WE sensitivity, mV/ppb = cert nA/ppb × PCB gain mV/nA
+```
+
+```bash
+set -a; . ./.env; set +a; make flash/so2mqtt
+```
+
+The values are compiled into the firmware, so reflash after editing `.env`. At boot the serial log shows `so2: certificate loaded` with the parsed numbers. If the values are blank or invalid, it logs a warning and publishes raw mV only.
+
+`nT` is fixed at 1 until a temperature source (AFE PT1000 or BME280) is wired, so expect temperature drift. `mqtt.SensorReading.Measurements` lets devices without a DHT11 supply their own measurement set instead of publishing a fake temperature/humidity.
 
 ## Radio plan (not yet enabled)
 

@@ -31,6 +31,8 @@ type SensorReading struct {
 	TVOC        uint32        // Total VOC (ppb) from SGP30. Zero if sensor not present.
 	SinceBootNS time.Duration // Nanoseconds since boot.
 	Timestamp   time.Time     // Wall-clock time. Zero if NTP sync failed.
+	// Measurements, when non-nil, replaces the default temperature/humidity/eco2/tvoc set.
+	Measurements map[string]float64
 }
 
 type Client struct {
@@ -284,6 +286,10 @@ func canonicalPayload(deviceSlug string, reading SensorReading) ([]byte, error) 
 	if reading.ECO2 != 0 {
 		measurements["eco2"] = float64(reading.ECO2)
 		measurements["tvoc"] = float64(reading.TVOC)
+	}
+	// Devices without a DHT11 (e.g. Alphasense AFE) supply their own set.
+	if reading.Measurements != nil {
+		measurements = reading.Measurements
 	}
 	payload := telemetryPayload{
 		SourceReadingKey: deviceSlug + ":" + strconv.FormatInt(recordedAt.UnixNano(), 10) + ":" + strconv.FormatInt(reading.SinceBootNS.Nanoseconds(), 10),
